@@ -1,0 +1,36 @@
+import { NextResponse } from "next/server";
+import {
+  addQuoteItem,
+  getActivePricing,
+  getLine,
+  getOrCreateDraftQuote,
+  getProduct,
+  removeQuoteItem,
+} from "@/lib/db";
+import { computeQuote, PricingError } from "@/lib/pricing";
+import type { ItemConfig } from "@/lib/types";
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as { productId: string; config: ItemConfig; qty: number };
+    const product = getProduct(body.productId);
+    if (!product) return NextResponse.json({ error: "Unknown product" }, { status: 404 });
+    const line = getLine(product.lineId)!;
+    const pricing = getActivePricing(product.lineId);
+    const qty = Math.max(1, Math.min(500, Math.round(body.qty || 1)));
+    // Recompute server-side — the client preview is never trusted for stored prices.
+    const computation = computeQuote(line, product, body.config, pricing.config, pricing.version);
+    const quote = getOrCreateDraftQuote();
+    const item = addQuoteItem(quote.id, product, body.config, qty, computation);
+    return NextResponse.json({ quoteId: quote.id, quoteRef: quote.ref, item });
+  } catch (err) {
+    const status = err instanceof PricingError ? 422 : 500;
+    return NextResponse.json({ error: (err as Error).message }, { status });
+  }
+}
+
+export async function DELETE(req: Request) {
+  const { itemId } = (await req.json()) as { itemId: number };
+  removeQuoteItem(itemId);
+  return NextResponse.json({ ok: true });
+}
