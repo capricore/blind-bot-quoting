@@ -364,14 +364,28 @@ export const ROLLER_PRICING_V1: RollerPricingConfig = {
     sheer: 0.95,
     "light-filtering": 1.0,
     "room-darkening": 1.12,
-    blackout: 1.3,
+    blackout: 1.28,
   },
   optionSurcharges: {
-    control: { "chain-plastic": 0, "chain-metal": 8, motorized: 95 },
+    control: { "chain-plastic": 0, "chain-metal": 8, motorized: 90 },
     headrail: { "open-roll": 0, cassette: 32 },
     mount: { inside: 0, outside: 0 },
   },
   minCharge: 49,
+};
+
+/**
+ * 2026.2 — Q2 freight adjustment: motorized +$5 (90→95), blackout multiplier 1.28→1.30.
+ * The active version. Quotes priced before this took effect stay pinned to 2026.1,
+ * so the version lock is observable: re-pricing an old config yields a different total.
+ */
+export const ROLLER_PRICING_V2: RollerPricingConfig = {
+  ...ROLLER_PRICING_V1,
+  opacityMultiplier: { ...ROLLER_PRICING_V1.opacityMultiplier, blackout: 1.3 },
+  optionSurcharges: {
+    ...ROLLER_PRICING_V1.optionSurcharges,
+    control: { ...ROLLER_PRICING_V1.optionSurcharges.control, motorized: 95 },
+  },
 };
 
 export const DRAPERY_PRICING_V1: DraperyPricingConfig = {
