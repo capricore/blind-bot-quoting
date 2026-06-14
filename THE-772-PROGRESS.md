@@ -1,7 +1,7 @@
 # THE-772 集成 — 进度与交接文档（Session Handoff）
 
 > 目的：把本 session 的**全部上下文**沉淀下来,供下一个 session（可能在公司另开）无缝接手。
-> 最后更新：2026-06-14 · 分支：`yanyan/the-772-import-skeleton`（quote 仓库）
+> 最后更新：2026-06-14 · quote 仓库代码**已合入 `main`（PR #1）**;shared-ui 的按钮改动在分支 `yanyan/the-772-quote-handoff-button`（未合）。
 
 ---
 
@@ -17,6 +17,28 @@
 - `blind-bot-frontend` —— blind-bot 安装器前端（Next.js 16；Supabase + Google 登录）
 - `blind-bot-shared-ui` —— 共享组件库（installer 的 ResultStep 在这里;GitHub tag + yalc 消费）
 - `blind-bot-server` —— blind-bot 后端（Node/Express + Supabase/Postgres;有 `clients`、`render_history` 表、`/lookup-api-key`、`/init-account`）
+
+---
+
+## 🚀 新机器 / 新 session 怎么接手（office cold-start → 接着开发）
+
+> **给新 Claude session 的第一句话**(直接复制):
+> 「先读 `THE-772-PROGRESS.md` 和 `docs/superpowers/specs/` 下两份 spec —— 这是上个 session 的完整上下文。然后帮我按文档把 quote 服务在本机跑起来（端口 3001），跑通后我们接着做第 7 节的下一步。」
+
+### A. 把它跑起来（从零到能登录）
+1. `git clone` / `git pull` —— 代码已在 **`main`**。
+2. **重建 `.env.local`**（⚠️ 最容易卡住的一步，密钥不在 git 里）：按下面第 4 节的 5 个变量填；两把 Supabase key 从 Supabase 控制台复制，或把上一台机器的 `.env.local` 安全拷过来。
+3. 装依赖 + better-sqlite3 预编译二进制 —— 见第 5 节的命令。
+4. `npm run dev -- -p 3001`（**必须 3001**）。
+5. 验证：开 `http://localhost:3001/login` 应看到全屏登录页（无侧边栏）；开第 5 节那个 handoff URL 应跳登录。
+   - 云端前置（Supabase 项目 / Google OAuth）是**共享的、一直在**，不用重建，`.env.local` 的 key 对就行。
+
+> 跑不起来先查这几样：`.env.local` 是否齐全、`NEXT_PUBLIC_SUPABASE_URL` 是否 `.supabase.co` 结尾（不是 dashboard 链接）、端口是不是 3001、better-sqlite3 二进制是否就位。
+> 没有 `.env.local` 也能跑（auth 会自动关闭、不崩），只是登录不可用。
+
+### B. 接着开发（回来第一件事）
+1. **真人登一次**（Google 或邮箱）→ 确认 Supabase `profiles` 建行、同邮箱时 `blindbot_linked_at` 有值。**这是唯一还没真人验证过的环节。**
+2. 然后按**第 7 节的优先级**推进（通常下一大块是：把 quotes/orders 迁 Postgres，或做真实变体映射）。
 
 ---
 
@@ -144,6 +166,6 @@ npm run dev -- -p 3001              # ⚠️ 必须 3001（Google origin / Supab
 ---
 
 ## 9. 分支 / 仓库
-- quote:`blind-bot-quoting`,分支 **`yanyan/the-772-import-skeleton`**,remote `github.com/capricore/blind-bot-quoting`
+- quote:`blind-bot-quoting`,**PR #1 已合入 `main`**(分支 `yanyan/the-772-import-skeleton` 仍在),remote `github.com/capricore/blind-bot-quoting`
 - shared-ui:`blind-bot-shared-ui`,改动提交在分支 **`yanyan/the-772-quote-handoff-button`**,remote `github.com/c6wangya/blind-bot-shared-ui`
 - 两份 spec 在 `docs/superpowers/specs/`;交付/教学文档 `THE-772-PROTOTYPE-GUIDE.*`、`THE-772-LEARNING-GUIDE.*`
