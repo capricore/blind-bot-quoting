@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OPACITY_LABELS, TIER_LABELS } from "@/lib/catalog-data";
 import { usd } from "@/lib/format";
+import { mapImportedConfig, type ImportPayload } from "@/lib/import";
 import type {
   ItemConfig,
   OpacityId,
@@ -24,24 +26,36 @@ export default function Configurator({
   line,
   pricingVersion,
   leadTimeDays,
+  imported,
 }: {
   product: Product;
   line: ProductLine;
   pricingVersion: string;
   leadTimeDays: number;
+  imported?: ImportPayload | null;
 }) {
   const router = useRouter();
 
-  const [colorId, setColorId] = useState(product.colors[0].id);
-  const [opacityId, setOpacityId] = useState<OpacityId>(product.validOpacities[0]);
-  const [options, setOptions] = useState<Record<string, string>>(() =>
-    Object.fromEntries(line.optionGroups.map((g) => [g.key, g.options[0].id]))
-  );
-  const [dims, setDims] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
+  // Seam for upstream-design import. No-op today (see lib/import.ts): returns {}, so the
+  // initial state below falls back to product defaults. When real mapping lands, these
+  // prefilled values flow straight into the form with no further wiring.
+  const prefill = mapImportedConfig(imported?.cfg ?? {});
+
+  const [colorId, setColorId] = useState(prefill.colorId ?? product.colors[0].id);
+  const [opacityId, setOpacityId] = useState<OpacityId>(prefill.opacityId ?? product.validOpacities[0]);
+  const [options, setOptions] = useState<Record<string, string>>(() => ({
+    ...Object.fromEntries(line.optionGroups.map((g) => [g.key, g.options[0].id])),
+    ...(prefill.options ?? {}),
+  }));
+  const [dims, setDims] = useState<Record<string, string>>(() => {
+    const base = Object.fromEntries(
       line.dimensionFields.map((f) => [f.key, String(DEFAULT_DIMS[line.id]?.[f.key] ?? f.min)])
-    )
-  );
+    );
+    if (prefill.dimensions) {
+      for (const [k, v] of Object.entries(prefill.dimensions)) base[k] = String(v);
+    }
+    return base;
+  });
   const [qty, setQty] = useState(1);
   const [preview, setPreview] = useState(0.65);
 
@@ -49,7 +63,7 @@ export default function Configurator({
   const [priceError, setPriceError] = useState<string | null>(null);
   const [pricePending, setPricePending] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [added, setAdded] = useState<{ quoteRef: string } | null>(null);
+  const [lastAdded, setLastAdded] = useState<{ quoteRef: string; key: string } | null>(null);
 
   const color = product.colors.find((c) => c.id === colorId) ?? product.colors[0];
 
@@ -74,6 +88,11 @@ export default function Configurator({
     }),
     [colorId, opacityId, options, dims]
   );
+
+  // "Added" confirmation is derived, not stored: it shows only while the config +
+  // qty still match what was last added, so changing anything clears it — no effect needed.
+  const configKey = useMemo(() => `${JSON.stringify(config)}|${qty}`, [config, qty]);
+  const added = lastAdded?.key === configKey ? lastAdded : null;
 
   // ---- backend auto-quote, debounced ----
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,9 +129,6 @@ export default function Configurator({
     };
   }, [fetchPrice]);
 
-  // reset "added" confirmation whenever the configuration changes
-  useEffect(() => setAdded(null), [config, qty]);
-
   const addToQuote = async () => {
     if (!computation) return;
     setAdding(true);
@@ -124,7 +140,7 @@ export default function Configurator({
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Could not add to quote");
-      setAdded({ quoteRef: data.quoteRef });
+      setLastAdded({ quoteRef: data.quoteRef, key: configKey });
       router.refresh();
     } catch (e) {
       setPriceError((e as Error).message);
@@ -142,7 +158,19 @@ export default function Configurator({
       <div className="lg:col-span-3">
         <Card className="overflow-hidden">
           <div className="relative aspect-[4/3]">
-            {isRoller ? (
+            {imported ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imported.img}
+                  alt="Carried over design"
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute left-4 top-4 rounded-lg bg-white/85 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm backdrop-blur">
+                  Carried over
+                </div>
+              </>
+            ) : isRoller ? (
               <RollerShadeScene
                 color={color}
                 patternStyle={product.patternStyle}
@@ -167,24 +195,41 @@ export default function Configurator({
                 openAmount={1 - preview}
               />
             )}
-            <div className="absolute left-4 top-4 rounded-lg bg-white/85 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm backdrop-blur">
-              In-context render · updates live
+            {!imported && (
+              <div className="absolute left-4 top-4 rounded-lg bg-white/85 px-2.5 py-1 text-[11px] font-medium text-ink-soft shadow-sm backdrop-blur">
+                In-context render · updates live
+              </div>
+            )}
+          </div>
+          {imported ? (
+            Object.keys(imported.cfg).length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 border-t border-line px-5 py-3.5">
+                {Object.entries(imported.cfg).map(([k, v]) => (
+                  <span
+                    key={k}
+                    className="rounded-md bg-[#f1efe9] px-2 py-0.5 text-[11px] text-ink-soft"
+                  >
+                    <span className="font-medium capitalize">{k}</span>: {v}
+                  </span>
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="flex items-center gap-4 border-t border-line px-5 py-3.5">
+              <span className="text-xs font-medium text-muted">
+                {isRoller ? "Preview: shade position" : "Preview: panels drawn"}
+              </span>
+              <input
+                type="range"
+                min="0.12"
+                max="1"
+                step="0.01"
+                value={preview}
+                onChange={(e) => setPreview(parseFloat(e.target.value))}
+                className="h-1.5 flex-1 cursor-pointer accent-[#b08d57]"
+              />
             </div>
-          </div>
-          <div className="flex items-center gap-4 border-t border-line px-5 py-3.5">
-            <span className="text-xs font-medium text-muted">
-              {isRoller ? "Preview: shade position" : "Preview: panels drawn"}
-            </span>
-            <input
-              type="range"
-              min="0.12"
-              max="1"
-              step="0.01"
-              value={preview}
-              onChange={(e) => setPreview(parseFloat(e.target.value))}
-              className="h-1.5 flex-1 cursor-pointer accent-[#b08d57]"
-            />
-          </div>
+          )}
         </Card>
 
         {/* breakdown */}
@@ -397,9 +442,9 @@ export default function Configurator({
               {adding ? "Adding…" : added ? "✓ Added — add another" : "Add to quote"}
             </button>
             {added && (
-              <a href="/quotes" className="mt-2 block text-center text-xs font-medium text-brass hover:underline">
+              <Link href="/quotes" className="mt-2 block text-center text-xs font-medium text-brass hover:underline">
                 Added to {added.quoteRef} — review quote →
-              </a>
+              </Link>
             )}
           </Card>
         </div>

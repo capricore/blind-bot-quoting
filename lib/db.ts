@@ -6,6 +6,7 @@ import {
   PRODUCTS,
   PRODUCT_LINES,
   ROLLER_PRICING_V1,
+  ROLLER_PRICING_V2,
 } from "./catalog-data";
 import { computeQuote } from "./pricing";
 import type {
@@ -309,7 +310,7 @@ function seed(d: Database.Database) {
       "2026.2",
       1,
       "Q2 freight adjustment: motorized +$5, blackout multiplier 1.28→1.30",
-      JSON.stringify(ROLLER_PRICING_V1)
+      JSON.stringify(ROLLER_PRICING_V2)
     );
     ins.run("drapery", "2026.1", 1, "Initial cut-and-make formula", JSON.stringify(DRAPERY_PRICING_V1));
   }
@@ -334,7 +335,7 @@ function seed(d: Database.Database) {
     for (const it of items) {
       const product = getProduct(it.productId)!;
       const line = getLine(product.lineId)!;
-      const pricingCfg = product.lineId === "roller-shade" ? ROLLER_PRICING_V1 : DRAPERY_PRICING_V1;
+      const pricingCfg = product.lineId === "roller-shade" ? ROLLER_PRICING_V2 : DRAPERY_PRICING_V1;
       const version = product.lineId === "roller-shade" ? "2026.2" : "2026.1";
       const comp = computeQuote(line, product, it.config, pricingCfg, version);
       d.prepare(

@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>THE-772 · 交付说明与使用文档</title>
+<style>
+  :root {
+    --ink: #1f2a44;
+    --ink-soft: #3a4763;
+    --muted: #6b6a66;
+    --brass: #b08d57;
+    --line: #e4e0d6;
+    --surface: #ffffff;
+    --bg: #f3f1ec;
+    --code-bg: #f7f5ef;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink-soft);
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .page {
+    max-width: 880px;
+    margin: 32px auto;
+    background: var(--surface);
+    padding: 56px 64px;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 30px rgba(0,0,0,.05);
+  }
+  h1 {
+    font-size: 25px;
+    line-height: 1.3;
+    color: var(--ink);
+    margin: 0 0 2px;
+    letter-spacing: -.01em;
+  }
+  h1 + h1 { font-size: 17px; color: var(--muted); font-weight: 600; margin-bottom: 18px; }
+  h2 {
+    font-size: 19px;
+    color: var(--ink);
+    margin: 38px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--line);
+    letter-spacing: -.01em;
+  }
+  /* module dividers (H1 used mid-document) get a brass accent */
+  .page > h1:not(:first-of-type) {
+    font-size: 21px;
+    color: var(--brass);
+    margin: 44px 0 0;
+    padding-top: 18px;
+    border-top: 2px solid var(--brass);
+  }
+  .page > h1:not(:first-of-type) + h1 { font-size: 15px; }
+  h3 { font-size: 15.5px; color: var(--ink); margin: 24px 0 8px; }
+  p { margin: 10px 0; }
+  a { color: var(--brass); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  strong { color: var(--ink); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+  code {
+    font-family: "Cascadia Code", "Consolas", "SF Mono", ui-monospace, monospace;
+    font-size: 12.8px;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 5px;
+    color: #8a5a2b;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  pre code { background: none; border: 0; padding: 0; color: var(--ink-soft); font-size: 12.6px; }
+  blockquote {
+    margin: 14px 0;
+    padding: 10px 16px;
+    background: #fbf8f1;
+    border-left: 3px solid var(--brass);
+    border-radius: 0 8px 8px 0;
+    color: var(--ink-soft);
+  }
+  blockquote p { margin: 4px 0; }
+  blockquote pre { background: #fff; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 13.3px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 8px 11px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #faf9f5; color: var(--ink); font-weight: 600; }
+  tr:nth-child(even) td { background: #fcfbf8; }
+  td code, th code { font-size: 12px; }
+  @media print {
+    @page { size: A4; margin: 15mm 13mm; }
+    body { background: #fff; font-size: 10.6pt; }
+    .page {
+      max-width: none; margin: 0; padding: 0;
+      border-radius: 0; box-shadow: none;
+    }
+    h2, h3 { page-break-after: avoid; }
+    .page > h1:not(:first-of-type) { page-break-before: auto; }
+    table, pre, blockquote { page-break-inside: avoid; }
+    tr { page-break-inside: avoid; }
+    li { page-break-inside: avoid; }
+    a { color: var(--ink-soft); }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+<h1>THE-772 · B2B 报价系统原型 — 交付说明与使用文档</h1>
+<h1>THE-772 · B2B Quoting System Prototype — Handoff &amp; Usage Guide</h1>
+<blockquote>
+<p>关联 Linear ticket：[THE-772] B2B Quoting System — architecture proposal (Roller Shade + Drapery v1)
+Related Linear ticket: [THE-772] <em>Scoping</em> — B2B Quoting System architecture proposal (Roller Shade + Drapery v1)</p>
+<p>编写人 / Author: Yan Yan　·　交付对象 / For: Damon Wang　·　日期 / Date: 2026-06-13</p>
+</blockquote>
+<hr>
+<h2>0. 一句话总结 / TL;DR</h2>
+<p><strong>中文：</strong> THE-772 是一个**「方案调研（Scoping）」ticket**——它要的交付物是三份<em>书面文档</em>（竞品分析、架构方案、分阶段计划）。本 repo 没有止步于写方案，而是直接做出了一个<strong>端到端可运行的原型</strong>，把架构方案里的绝大多数设计点都用真实可跑的代码证明了。因此：</p>
+<ul>
+<li><strong>系统能力维度：远超 ticket 要求</strong>——目录、配置、渲染、自动报价、报价版本、预订单、供应商 Excel、状态机、全链路追踪都已真实实现并可演示。</li>
+<li><strong>书面交付物维度：仍有缺口</strong>——ticket 字面要求的「myblinds.co 竞品分析」「书面架构提案（含与 Installer Portal 共用/分叉的取舍）」「分阶段实施计划 + 工时估算」这三份文档目前不在 repo 中。</li>
+<li><strong>管线右半段是「模拟」的（符合 ticket 的 out-of-scope）</strong>——Excel 投递、供应商回传、物流单号接入、给零售商的实时推送，目前都由「Supplier Console」页面人工模拟，没有接真实的邮件/SFTP/承运商 API/推送通道。</li>
+</ul>
+<p><strong>EN:</strong> THE-772 is a <strong>scoping ticket</strong> — its named deliverables are three <em>written documents</em> (competitive read, architecture proposal, phased plan). This repo went beyond writing a proposal and built a <strong>working end-to-end prototype</strong> that proves most of the proposed architecture in runnable code. So:</p>
+<ul>
+<li><strong>System capability: exceeds the ticket</strong> — catalog, configurator, render, auto-quote, pricing versions, pre-orders, supplier Excel, state machine, and full tracking are all really implemented and demoable.</li>
+<li><strong>Written deliverables: still a gap</strong> — the three documents the ticket literally asks for (myblinds.co competitive read; written architecture proposal incl. the share-vs-fork decision against the Installer Portal; phased plan with effort estimates) are not in the repo.</li>
+<li><strong>The right half of the pipeline is simulated (consistent with the ticket&#39;s out-of-scope)</strong> — Excel delivery, supplier callback, logistics tracking ingestion, and real-time push to the retailer are all driven manually by the &quot;Supplier Console&quot; page; no real email/SFTP/carrier API/push channel is wired.</li>
+</ul>
+<hr>
+<h2>1. 需求逐条对照 / Requirements Traceability</h2>
+<p>图例 / Legend：✅ 已真实实现 Implemented　·　🟡 已实现但为模拟/桩 Simulated or stubbed　·　⬜ 未交付 Not delivered</p>
+<h3>1.1 零售商前端 UX / Retailer-facing UX</h3>
+<table>
+<thead>
+<tr>
+<th>Ticket 要求 / Requirement</th>
+<th align="center">状态</th>
+<th>实现位置与说明 / Where &amp; notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>经过策展、且供应链可生产的产品目录 / Curated, supply-chain-producible catalog</td>
+<td align="center">✅</td>
+<td><code>lib/catalog-data.ts</code> + <code>app/catalog</code>。共 12 个产品（卷帘 6 + 窗帘 6），2 条产品线。每个产品卡片展示可选遮光度。 12 products across 2 lines; each card surfaces its valid opacities.</td>
+</tr>
+<tr>
+<td>变体/组合：花色 + 该花色有效的遮光选项 / Pattern + opacity valid for that pattern</td>
+<td align="center">✅</td>
+<td>每个产品有 <code>validOpacities</code>。配置器中不可生产的遮光度<strong>置灰禁用</strong>（<code>components/Configurator.tsx</code>），后端 <code>validateConfig</code> 同样强校验，非法组合 <code>POST /api/price</code> 返回 <strong>422</strong>。约束是数据而非硬编码。 Constraint is data-driven and enforced on both client and server.</td>
+</tr>
+<tr>
+<td>选中配置的「在场景中」实时渲染 / In-context render for the selected configuration</td>
+<td align="center">🟡</td>
+<td><code>components/renders.tsx</code>：参数化 SVG 场景（卷帘/窗帘/色板），每次改动即时重绘。<strong>这是程序化 SVG，作为真实可视化引擎的占位/接入点</strong>，非最终渲染产品。 Programmatic SVG standing in for the real render engine.</td>
+</tr>
+<tr>
+<td>按产品线参数化的尺寸输入（窗帘高/宽、轨道宽等） / Dimension input parameterized per line</td>
+<td align="center">✅</td>
+<td><code>dimensionFields</code>：卷帘 width 30–300 / height 40–350；窗帘 rodWidth 60–600 / height 80–400 cm，含 min/max/step。前端即时校验 + 后端 <code>validateConfig</code> 二次校验。</td>
+</tr>
+<tr>
+<td>后端公式自动报价 / Auto-quote by backend formulas</td>
+<td align="center">✅</td>
+<td><code>lib/pricing.ts</code> + <code>POST /api/price</code>（配置器内 280ms 防抖调用）。两种定价：卷帘=尺寸分档价目表 <code>roller-grid</code>，窗帘=用料公式 <code>drapery-formula</code>。</td>
+</tr>
+</tbody></table>
+<h3>1.2 预订单 + 供应商履约管线 / Pre-order &amp; supplier fulfillment pipeline</h3>
+<table>
+<thead>
+<tr>
+<th>Ticket 要求 / Requirement</th>
+<th align="center">状态</th>
+<th>实现位置与说明 / Where &amp; notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>零售商确认报价 → 提交预订单 / Confirm quote → submit pre-order</td>
+<td align="center">✅</td>
+<td><code>POST /api/quotes/:id/submit</code>：草稿报价转为预订单，写入首条 <code>order_events</code>。前端二次确认弹窗（<code>components/QuoteActions.tsx</code>）。</td>
+</tr>
+<tr>
+<td>生成供应商格式的 Excel 订单文件 / Generate supplier-format Excel</td>
+<td align="center">✅</td>
+<td><code>lib/excel.ts</code>（exceljs）：<strong>中英双语</strong>工作簿，含表头块 + 每行明细（含工艺参数：用布米数、幅数、裁切长度）+ 合计 + 「说明 Instructions」分页。<code>GET /api/orders/:id/excel</code> 下载。</td>
+</tr>
+<tr>
+<td>Excel 投递给供应商 / Excel delivered to supplier</td>
+<td align="center">🟡</td>
+<td><strong>仅下载</strong>（订单详情页与 Supplier Console 的 .xlsx 链接）。说明页写「queued for delivery」，但<strong>没有接真实邮件/SFTP/API 投递</strong>。 Download only; no real transport wired.</td>
+</tr>
+<tr>
+<td>供应商回传订单号 + 持续状态更新 / Supplier returns Order № + status updates</td>
+<td align="center">🟡</td>
+<td>由 <strong>Supplier Console</strong>（<code>app/supplier</code>）人工模拟：<code>POST /api/orders/:id/advance</code> 按动作推进状态，订单号随机生成（<code>SZF-xxxxx</code>）。 Simulated via the Supplier Console.</td>
+</tr>
+<tr>
+<td>订单号 + 运单号同步进物流层 / Order № + Tracking № sync into logistics</td>
+<td align="center">🟡</td>
+<td>运单号在「发货」动作时随机生成（<code>SFxxxxxxxxxxxxx</code>），承运商硬编码为「SF Express Intl」。<strong>未接真实承运商 API</strong>。 No real carrier integration; tracking is generated, carrier hardcoded.</td>
+</tr>
+<tr>
+<td>实时状态推送回零售商，直到妥投 / Real-time status pushed to retailer until delivery</td>
+<td align="center">🟡</td>
+<td><strong>仅站内可见</strong>：订单详情时间线、Dashboard 活动流、履约管线计数。靠页面刷新/<code>router.refresh()</code> 更新，<strong>没有邮件/WebSocket/推送通知</strong>等真实「推送」通道。 In-portal only; no real push channel.</td>
+</tr>
+</tbody></table>
+<h3>1.3 v1 产品线范围 / v1 product-line scope</h3>
+<table>
+<thead>
+<tr>
+<th>Ticket 要求 / Requirement</th>
+<th align="center">状态</th>
+<th>说明 / Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>仅 Roller Shade + Drapery / Roller Shade + Drapery only</td>
+<td align="center">✅</td>
+<td>恰好这两条线。 Exactly these two lines.</td>
+</tr>
+<tr>
+<td>其余产品线推迟到后续阶段 / Additional lines deferred</td>
+<td align="center">✅</td>
+<td>架构是数据驱动的，新增产品线主要是加配置数据，无新增线。 Architecture is data-driven; adding a line is mostly config.</td>
+</tr>
+</tbody></table>
+<h3>1.4 Ticket 明列的「交付物」 / The ticket&#39;s named deliverables</h3>
+<table>
+<thead>
+<tr>
+<th>Ticket 交付物 / Deliverable</th>
+<th align="center">状态</th>
+<th>说明 / Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>① myblinds.co 竞品分析 / Competitive read of myblinds.co</td>
+<td align="center">⬜</td>
+<td>repo 中无此文档。 Not in the repo.</td>
+</tr>
+<tr>
+<td>② 书面架构提案 / Written architecture proposal</td>
+<td align="center">🟡</td>
+<td>原型<strong>演示</strong>了架构，但没有书面叙述文档；其中「零售商前端与现有 Installer Portal <strong>共用还是分叉</strong>」这一明确要求<strong>完全未被讨论</strong>。 Prototype demonstrates the architecture, but there is no written narrative; the explicit &quot;share vs. fork the Installer Portal&quot; question is not addressed anywhere.</td>
+</tr>
+<tr>
+<td>③ 分阶段实施计划 + 工时估算 / Phased plan with effort estimates</td>
+<td align="center">⬜</td>
+<td>repo 中无此文档。 Not in the repo.</td>
+</tr>
+<tr>
+<td>认证 / 入驻 / 计费（ticket 明确 out-of-scope） / Auth, onboarding, billing (explicitly OOS)</td>
+<td align="center">✅(正确排除)</td>
+<td>单一演示零售商「Harbor &amp; Lane Interiors」，无登录。符合 ticket。 Single demo retailer, no auth — correctly excluded.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>2. 缺口清单与建议 / Gaps &amp; Recommendations</h2>
+<h3>2.1 必须补的「书面交付物」 / Written deliverables to add</h3>
+<p><strong>这是 Damon 打开 ticket 核对清单时最可能在意的部分。</strong> This is what Damon will most likely check against the ticket.</p>
+<ol>
+<li><strong>myblinds.co 竞品分析</strong>：他们做得好的、缺口、我们该采纳 vs 差异化的点。
+Competitive read: strengths, gaps, adopt vs. differentiate.</li>
+<li><strong>架构提案书面稿</strong>，尤其补上 ticket 点名但 repo 未答的一条：<strong>零售商门户前端与现有 Installer Portal 的「共用 vs 分叉」取舍</strong>（共享哪些基础设施/组件，哪些 fork）。其余 7 个架构子项可直接以本原型为证据成文。
+Written proposal, especially the unaddressed <strong>share-vs-fork decision against the Installer Portal</strong>. The other 7 architecture sub-topics can be written up using this prototype as evidence.</li>
+<li><strong>分阶段实施计划 + 粗略工时</strong>：把下方「2.2 模拟项」转成真实集成的里程碑。
+Phased plan + rough effort, turning the simulated items below into real-integration milestones.</li>
+</ol>
+<blockquote>
+<p>建议措辞 / Suggested framing：把本原型定位为「架构提案的可运行佐证（executable proof of the architecture）」，三份书面文档围绕它补齐即可。
+Position the prototype as an <em>executable proof</em> of the architecture; the three documents wrap around it.</p>
+</blockquote>
+<h3>2.2 管线右半段的真实集成 / Real integrations for the right half of the pipeline</h3>
+<p>以下当前是模拟，是后续 Phase 的主要工作量来源 / Currently simulated; the bulk of later-phase effort:</p>
+<ul>
+<li><strong>Excel 投递通道</strong>：邮件 / SFTP / 供应商 API 适配器（取代「仅下载」）。 Excel transport (email/SFTP/API adapter).</li>
+<li><strong>供应商回传接入</strong>：订单号、生产状态的真实回调或轮询。 Real supplier callback/polling for order № and production status.</li>
+<li><strong>物流接入</strong>：承运商 API 接运单号与轨迹（取代随机生成 + 硬编码承运商）。 Carrier API for tracking &amp; milestones.</li>
+<li><strong>零售商推送通道</strong>：邮件 / 站内通知 / WebSocket 实时推送（ticket 明确点名的 &quot;Retailer update channel&quot;）。 Real push channel (email / in-app / WebSocket).</li>
+<li><strong>渲染引擎对接</strong>：用真实可视化产品替换程序化 SVG。 Swap programmatic SVG for the real render engine.</li>
+</ul>
+<h3>2.3 本次已修复的代码问题 / Code issues fixed in this pass</h3>
+<p>以下三处在本次交付中<strong>已修复并验证</strong> / The following were fixed and verified in this handoff:</p>
+<ol>
+<li><p><strong>卷帘定价版本无真实价差（已修复）/ Roller pricing versions had no real delta (fixed).</strong>
+原先 seed 把 <code>2026.1</code> 与 <code>2026.2</code> 写入了同一份 <code>ROLLER_PRICING_V1</code>，两个版本字节相同，版本备注「motorized +$5、blackout 1.28→1.30」名不副实——「历史报价锁定版本」这一卖点演示不出来。现已拆为：<code>2026.1</code> = motorized 90 / blackout ×1.28（旧版），<code>2026.2</code>（active）= motorized 95 / blackout ×1.30（现行）。现行报价数值不变，但两个版本间产生了与备注一致的真实价差。
+<code>2026.1</code> and <code>2026.2</code> were seeded with the same config. Split into a genuine old version (motorized 90 / blackout ×1.28) and the active one (95 / ×1.30); current prices unchanged, but the version lock is now observable.
+<em>涉及 / Files: <code>lib/catalog-data.ts</code>（新增 <code>ROLLER_PRICING_V2</code>）、<code>lib/db.ts</code>（seed 与历史报价改用 V2）。验证：<code>POST /api/price</code> 对 120×160 blackout+motorized 卷帘 → $196.40，pin <code>2026.2</code>。</em></p>
+</li>
+<li><p><strong><code>Configurator.tsx</code> 在 effect 内同步 setState（已修复）/ Synchronous setState inside an effect (fixed).</strong>
+<code>useEffect(() =&gt; setAdded(null), [config, qty])</code> 触发 React 反模式告警。改为<strong>派生状态</strong>：记录上次加入报价时的配置指纹，仅当当前配置/数量仍匹配时显示「已加入」确认，配置一变即自动消失，无需 effect。
+Replaced the reset-via-effect with a derived <code>added</code> value keyed on the config snapshot.</p>
+</li>
+<li><p><strong><code>Configurator.tsx</code> 用 <code>&lt;a&gt;</code> 做站内跳转（已修复）/ Raw <code>&lt;a&gt;</code> for in-app navigation (fixed).</strong>
+「review quote」链接由 <code>&lt;a href=&quot;/quotes&quot;&gt;</code> 改为 <code>next/link</code> 的 <code>&lt;Link&gt;</code>。</p>
+</li>
+</ol>
+<blockquote>
+<p>修复后 <code>npm run lint</code> <strong>零错误</strong>通过；<code>/api/price</code>、<code>/pricing</code>、<code>/configure/*</code> 均 200 实测正常。
+After the fixes <code>npm run lint</code> passes with zero errors; <code>/api/price</code>, <code>/pricing</code>, <code>/configure/*</code> all verified 200.</p>
+</blockquote>
+<hr>
+<h2>3. 如何运行 / How to Run</h2>
+<blockquote>
+<p>环境：Windows + Node 24。本机首次安装踩过一个 <code>better-sqlite3</code> 原生模块的坑，下面给的是<strong>实测可跑</strong>的步骤。
+Environment: Windows + Node 24. First-time install hits a <code>better-sqlite3</code> native-build snag; the steps below are the verified working path.</p>
+</blockquote>
+<pre><code class="language-bash"># 1) 安装依赖（跳过原生编译脚本，避免缺 Python 报错）
+#    Install deps, skipping native build scripts (no Python on the box)
+npm install --ignore-scripts
+
+# 2) 取 better-sqlite3 的预编译二进制（Node 24 = ABI v137），解压到位
+#    Fetch the prebuilt better-sqlite3 binary (Node 24 = ABI v137) and unpack it
+node -e &quot;const fs=require(&#39;fs&#39;);fetch(&#39;https://registry.npmmirror.com/-/binary/better-sqlite3/v12.10.0/better-sqlite3-v12.10.0-node-v137-win32-x64.tar.gz&#39;,{redirect:&#39;follow&#39;}).then(r=&gt;r.arrayBuffer()).then(b=&gt;fs.writeFileSync(&#39;bsq.tgz&#39;,Buffer.from(b)))&quot;
+tar -xzf bsq.tgz -C node_modules/better-sqlite3 &amp;&amp; rm bsq.tgz
+
+# 3) 起开发服务器
+#    Start the dev server
+npm run dev          # http://localhost:3000
+</code></pre>
+<ul>
+<li>一劳永逸 / Permanent fix：<code>npm config set better_sqlite3_binary_host &quot;https://registry.npmmirror.com/-/binary/better-sqlite3&quot;</code>，之后 <code>npm install</code> 会自动走镜像拉预编译包，无需手动两步。</li>
+<li>SQLite 数据库在<strong>首次请求时自动创建并灌入种子数据</strong>（<code>data/app.db</code>，含 2 条历史订单）。想重置成全新演示状态：删掉 <code>data/</code> 文件夹即可。
+The SQLite DB is auto-created and seeded on first request; delete <code>data/</code> to reset to a clean demo.</li>
+<li>另有一个无害告警：本机用户目录下有个多余的 <code>C:\Users\PC\package-lock.json</code> 让 Next.js 误判 workspace 根目录，不影响运行。
+Harmless warning: a stray lockfile in the home dir makes Next.js mis-infer the workspace root; no impact.</li>
+</ul>
+<hr>
+<h2>4. 演示走查（约 5 分钟） / Demo Walkthrough (~5 min)</h2>
+<p>按这个顺序点，正好覆盖 ticket 要求的全链路。Follow this order to cover the whole loop the ticket asks for.</p>
+<ol>
+<li><p><strong>Dashboard <code>/</code></strong> — 账户概览：未结报价、在途预订单、生产中、已妥投；两条产品线入口；履约管线分档计数；供应商/物流推来的「最新动态」流。
+Account stats, two product-line entries, fulfillment pipeline, live activity feed.</p>
+</li>
+<li><p><strong>Catalog <code>/catalog</code></strong> — 按产品线筛选。注意每张卡片底部的<strong>可选遮光度标签</strong>：变体约束是数据驱动的。
+Filter by line; note the valid-opacity chips per card — constraints are data, not code.</p>
+</li>
+<li><p><strong>Configure <code>/configure/rs-botanica</code>（或任意产品）</strong> — 这是核心页：
+The core page:</p>
+<ul>
+<li>选色 / 遮光度 / 选项 / 尺寸；<strong>不可生产的遮光度自动置灰</strong>（试试 <code>Solar Screen 3%</code> → 仅 Sheer）。
+Non-producible opacities are auto-disabled (try <em>Solar Screen 3%</em> — sheer only).</li>
+<li>左侧<strong>在场景渲染随每次改动实时更新</strong>；下方滑杆可预览卷帘升降 / 窗帘开合。
+The in-context render updates live; the slider previews shade position / panel draw.</li>
+<li><strong>自动报价</strong>由后端公式引擎计算，给出完整价格明细 + 工艺参数（用布米数、幅数）。
+Auto-quote with full breakdown and manufacturing facts.</li>
+<li>价格右上角标注 <strong>pricing v{版本号}</strong>——客户端的预览价从不被信任，加入报价时后端会重新计价。
+Client preview price is never trusted; the server re-prices on add.</li>
+</ul>
+</li>
+<li><p><strong>加入报价 → Quotes <code>/quotes</code></strong> — 草稿累积明细；进入某条报价可看汇总（含锁定的定价版本），点「Submit pre-order」转预订单（有二次确认）。
+Draft accumulates lines; submit converts it to a pre-order.</p>
+</li>
+<li><p><strong>Pre-Orders <code>/orders</code> → 订单详情</strong> — 6 段状态步进条、履约信息（供应商单号/运单号/承运商/ETA）、<strong>事件时间线</strong>，以及右上角 <strong>⬇ Supplier order file (.xlsx)</strong>：下载中英双语的供应商订单文件。
+Status stepper, fulfillment facts, event timeline, and the bilingual supplier Excel download.</p>
+</li>
+<li><p><strong>Supplier Console <code>/supplier</code></strong> — <strong>模拟供应商系统 + 物流层</strong>：Acknowledge（发订单号）→ Start production → Ship（发运单号）→ In transit → Deliver。每一次推进都会回写到零售商侧的订单时间线和 Dashboard 动态流。
+Simulates the supplier + logistics side; each push appears on the retailer&#39;s timeline and dashboard.</p>
+</li>
+<li><p><strong>Pricing Versions <code>/pricing</code></strong> — 版本化的报价公式引擎：卷帘=尺寸分档价目表，窗帘=用料 cut-and-make 公式。报价会<strong>锁定</strong>计价所用的版本，调价不影响历史报价。
+The versioned formula engine; quotes pin the version they were priced with.</p>
+</li>
+</ol>
+<hr>
+<h2>5. 架构速览（给技术读者） / Architecture at a Glance</h2>
+<ul>
+<li><strong>技术栈 / Stack</strong>：Next.js 16（App Router，无 <code>src/</code>）、React 19、TypeScript、Tailwind v4。原生包 <code>better-sqlite3</code> / <code>exceljs</code> 在 <code>next.config.ts</code> 标记为 <code>serverExternalPackages</code>，不进客户端包。</li>
+<li><strong>数据流 / Data flow</strong>：服务端组件直接调 <code>lib/db.ts</code> 的查询函数；客户端组件（Configurator / QuoteActions / SupplierActions）通过 <code>app/api/</code> 下的路由变更数据。<strong>客户端永不被信任定价</strong>——<code>POST /api/quote-items</code> 入库前服务端重新计价。</li>
+<li><strong>目录是静态 TS，不是 DB 行 / Catalog is static TS, not DB rows</strong>：产品线、产品、颜色、定价配置在 <code>lib/catalog-data.ts</code>；只有<strong>定价版本、报价、订单、订单事件</strong>落在 SQLite。</li>
+<li><strong>定价引擎 / Pricing</strong>：<code>lib/pricing.ts</code> 纯函数、同构。两种 kind：<code>roller-grid</code> 与 <code>drapery-formula</code>。定价配置是 <code>pricing_versions</code> 表里的版本化行；每条报价行<strong>快照</strong>完整 <code>config</code> + 计算结果 <code>computation</code> + 版本号 —— 这就是「历史报价免疫调价」的实现方式。</li>
+<li><strong>可生产性是数据 / Producibility is data</strong>：每个产品的 <code>validOpacities</code> 约束配置器，并由 <code>validateConfig</code> 在服务端强制（非法组合返回 422）。</li>
+<li><strong>订单状态机 / Order state machine</strong>：<code>submitted → acknowledged → in_production → shipped → in_transit → delivered</code>，经 <code>POST /api/orders/:id/advance</code> 推进，乱序操作返回 <strong>409</strong>，每次转移写一条 <code>order_events</code>——事件即零售商侧的更新通道（时间线、Dashboard 流）。</li>
+<li><strong>供应商 Excel / Supplier Excel</strong>：<code>lib/excel.ts</code> 用 exceljs 生成中英双语工作簿，由 <code>GET /api/orders/:id/excel</code> 提供下载。</li>
+<li><strong>渲染 / Renders</strong>：<code>components/renders.tsx</code> 参数化 SVG（卷帘 / 窗帘 / 色板）——真实可视化引擎的占位。</li>
+</ul>
+<blockquote>
+<p>更详细的工程约定见仓库内 <code>CLAUDE.md</code> 与 <code>AGENTS.md</code>。
+See <code>CLAUDE.md</code> and <code>AGENTS.md</code> in the repo for engineering conventions.</p>
+</blockquote>
+<hr>
+<h2>6. 给 Damon 的一页结论 / One-Page Conclusion for Damon</h2>
+<ul>
+<li>✅ <strong>报价系统的端到端可行性已被一个能跑的原型证明</strong>：目录 → 配置 → 渲染 → 自动报价 → 报价版本锁定 → 预订单 → 供应商 Excel → 状态机 → 全链路追踪，全部真实可演示。
+End-to-end feasibility is proven by a working prototype across the entire loop.</li>
+<li>🟡 <strong>管线右半段（投递 / 供应商回传 / 物流 / 推送 / 渲染引擎）是有意为之的模拟</strong>，是后续实施阶段的主要工作量。
+The right half of the pipeline is intentionally simulated and is where the real implementation effort lies.</li>
+<li>⬜ <strong>ticket 字面要求的三份书面文档（竞品分析、书面架构提案含「共用 vs 分叉 Installer Portal」、分阶段计划）仍需补齐</strong>——建议以本原型为佐证来写。
+The three written deliverables remain to be produced, best written with this prototype as evidence.</li>
+</ul>
+<blockquote>
+<p>一句话 / In one line：<strong>做出来的比要写的多，要写的还没写。</strong> We built more than was asked to be written; what was asked to be written isn&#39;t written yet.</p>
+</blockquote>
+
+  </main>
+</body>
+</html>
