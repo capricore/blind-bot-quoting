@@ -16,7 +16,7 @@ const ACTOR_LABEL: Record<string, string> = {
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const order = getOrder(Number(id));
+  const order = await getOrder(Number(id));
   if (!order) notFound();
 
   const stageIdx = ORDER_STATUSES.indexOf(order.status);

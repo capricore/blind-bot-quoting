@@ -3,8 +3,8 @@ import { Card, EmptyState, LinkButton, PageHeader, StatusBadge } from "@/compone
 import { getOrders } from "@/lib/db";
 import { fmtDate, usd } from "@/lib/format";
 
-export default function OrdersPage() {
-  const orders = getOrders();
+export default async function OrdersPage() {
+  const orders = await getOrders();
 
   return (
     <div>

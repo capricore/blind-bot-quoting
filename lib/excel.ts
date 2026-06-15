@@ -25,7 +25,7 @@ const thin: Partial<ExcelJS.Borders> = {
  * facts (fabric meters, panel counts) precomputed.
  */
 export async function buildOrderWorkbook(orderId: number): Promise<{ buffer: Buffer; filename: string }> {
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) throw new Error("Order not found");
 
   const wb = new ExcelJS.Workbook();

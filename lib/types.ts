@@ -147,7 +147,7 @@ export interface PricingVersionRow {
   id: number;
   lineId: ProductLineId;
   version: string;
-  active: number;
+  active: boolean;
   note: string;
   config: RollerPricingConfig | DraperyPricingConfig;
   createdAt: string;

@@ -32,7 +32,7 @@ const rand = (len: number) => {
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const orderId = Number(id);
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
   const { action } = (await req.json()) as { action: string };
@@ -51,7 +51,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const eta = new Date();
       eta.setDate(eta.getDate() + 21);
       const etaDate = eta.toISOString().slice(0, 10);
-      updateOrder(
+      await updateOrder(
         orderId,
         { status: next, supplierOrderNo, etaDate },
         {
@@ -63,7 +63,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       break;
     }
     case "start_production":
-      updateOrder(
+      await updateOrder(
         orderId,
         { status: next },
         { status: next, note: "Production started — fabric cutting and assembly underway.", actor: "supplier" }
@@ -72,7 +72,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     case "ship": {
       const trackingNo = `SF${rand(13)}`;
       const carrier = "SF Express Intl";
-      updateOrder(
+      await updateOrder(
         orderId,
         { status: next, trackingNo, carrier },
         {
@@ -84,14 +84,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       break;
     }
     case "in_transit":
-      updateOrder(
+      await updateOrder(
         orderId,
         { status: next },
         { status: next, note: "Cleared export customs, in linehaul to destination market.", actor: "logistics" }
       );
       break;
     case "deliver":
-      updateOrder(
+      await updateOrder(
         orderId,
         { status: next },
         { status: next, note: "Delivered and signed for at receiving dock.", actor: "logistics" }
@@ -99,5 +99,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       break;
   }
 
-  return NextResponse.json({ order: getOrder(orderId) });
+  return NextResponse.json({ order: await getOrder(orderId) });
 }
