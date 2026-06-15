@@ -4,8 +4,8 @@ import { Card, EmptyState, PageHeader, StatusBadge } from "@/components/ui";
 import { getOrders } from "@/lib/db";
 import { fmtDate, usd } from "@/lib/format";
 
-export default function SupplierConsolePage() {
-  const orders = getOrders();
+export default async function SupplierConsolePage() {
+  const orders = await getOrders();
 
   return (
     <div>

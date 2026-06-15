@@ -95,8 +95,8 @@ function DraperyFormula({ cfg }: { cfg: DraperyPricingConfig }) {
   );
 }
 
-export default function PricingPage() {
-  const versions = getAllPricingVersions();
+export default async function PricingPage() {
+  const versions = await getAllPricingVersions();
   const lines = getLines();
 
   return (

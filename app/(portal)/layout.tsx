@@ -1,13 +1,12 @@
 import Sidebar from "@/components/Sidebar";
-import { db, getDraftQuote, getQuote } from "@/lib/db";
+import { getDraftQuote, getQuote } from "@/lib/db";
 
-// Every portal page reads live SQLite state; opt this subtree out of static prerendering.
+// Every portal page reads live DB state; opt this subtree out of static prerendering.
 export const dynamic = "force-dynamic";
 
-export default function PortalLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  db();
-  const draft = getDraftQuote();
-  const draftCount = draft ? getQuote(draft.id)!.items.length : 0;
+export default async function PortalLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const draft = await getDraftQuote();
+  const draftCount = draft ? (await getQuote(draft.id))?.items.length ?? 0 : 0;
 
   return (
     <>

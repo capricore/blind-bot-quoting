@@ -17,7 +17,7 @@ export default async function ConfigurePage({
   const product = getProduct(productId);
   if (!product) notFound();
   const line = getLine(product.lineId)!;
-  const pricing = getActivePricing(product.lineId);
+  const pricing = await getActivePricing(product.lineId);
   const imported = parseImportPayload(img, cfg);
 
   // Cross-system handoff requires a signed-in retailer: if a design is being

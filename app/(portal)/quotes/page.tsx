@@ -3,8 +3,8 @@ import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui
 import { getQuotes } from "@/lib/db";
 import { fmtDate, usd } from "@/lib/format";
 
-export default function QuotesPage() {
-  const quotes = getQuotes();
+export default async function QuotesPage() {
+  const quotes = await getQuotes();
 
   return (
     <div>

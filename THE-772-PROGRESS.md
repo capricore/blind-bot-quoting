@@ -1,7 +1,7 @@
 # THE-772 集成 — 进度与交接文档（Session Handoff）
 
 > 目的：把本 session 的**全部上下文**沉淀下来,供下一个 session（可能在公司另开）无缝接手。
-> 最后更新：2026-06-14 · quote 仓库代码**已合入 `main`（PR #1）**;shared-ui 的按钮改动在分支 `yanyan/the-772-quote-handoff-button`（未合）。
+> 最后更新：2026-06-15 · quote 仓库 PR #1 **已合入 `main`**;之后 **quotes/orders/pricing 已从 SQLite 迁到 Supabase/Postgres**（分支 `yanyan/the-772-postgres-migration`,better-sqlite3 已移除）。shared-ui 的按钮改动在分支 `yanyan/the-772-quote-handoff-button`（未合）。
 
 ---
 
@@ -26,12 +26,12 @@
 > 「先读 `THE-772-PROGRESS.md` 和 `docs/superpowers/specs/` 下两份 spec —— 这是上个 session 的完整上下文。然后帮我按文档把 quote 服务在本机跑起来（端口 3001），跑通后我们接着做第 7 节的下一步。」
 
 ### A. 把它跑起来（从零到能登录）
-1. `git clone` / `git pull` —— 代码已在 **`main`**。
-2. **重建 `.env.local`**（⚠️ 最容易卡住的一步，密钥不在 git 里）：按下面第 4 节的 5 个变量填；两把 Supabase key 从 Supabase 控制台复制，或把上一台机器的 `.env.local` 安全拷过来。
-3. 装依赖 + better-sqlite3 预编译二进制 —— 见第 5 节的命令。
+1. `git clone` / `git pull`。
+2. **重建 `.env.local`**（⚠️ 最容易卡住、且现在是**必需**的——数据层已迁 Postgres，没有 Supabase env 整个 app 都跑不起来）：按第 4 节的 5 个变量填；两把 Supabase key 从 Supabase 控制台复制，或把上一台机器的 `.env.local` 安全拷过来。
+3. `npm install`（better-sqlite3 已移除，**不再需要**那个预编译二进制步骤了）。
 4. `npm run dev -- -p 3001`（**必须 3001**）。
-5. 验证：开 `http://localhost:3001/login` 应看到全屏登录页（无侧边栏）；开第 5 节那个 handoff URL 应跳登录。
-   - 云端前置（Supabase 项目 / Google OAuth）是**共享的、一直在**，不用重建，`.env.local` 的 key 对就行。
+5. 验证：开 `http://localhost:3001/login` 应看到全屏登录页；首页/目录/报价/订单都正常（数据来自 Postgres，首次请求自动 seed 2 条历史订单）。
+   - 云端前置（Supabase 项目 / Google OAuth / 已建好的 6 张表）是**共享的、一直在**，不用重建。
 
 > 跑不起来先查这几样：`.env.local` 是否齐全、`NEXT_PUBLIC_SUPABASE_URL` 是否 `.supabase.co` 结尾（不是 dashboard 链接）、端口是不是 3001、better-sqlite3 二进制是否就位。
 > 没有 `.env.local` 也能跑（auth 会自动关闭、不崩），只是登录不可用。
@@ -124,12 +124,10 @@ BLINDBOT_API_URL=https://blind-bot-server-bit-beta-fwig.onrender.com
 ## 5. 如何运行 + 测连调
 
 ```bash
-npm install --ignore-scripts        # 装依赖（跳过原生编译）
-# better-sqlite3 原生模块:Node 24 = ABI v137,从镜像取预编译二进制解压（这台机器 GitHub 直连被墙）：
-node -e "const fs=require('fs');fetch('https://registry.npmmirror.com/-/binary/better-sqlite3/v12.10.0/better-sqlite3-v12.10.0-node-v137-win32-x64.tar.gz',{redirect:'follow'}).then(r=>r.arrayBuffer()).then(b=>fs.writeFileSync('bsq.tgz',Buffer.from(b)))"
-tar -xzf bsq.tgz -C node_modules/better-sqlite3 && rm bsq.tgz
-npm run dev -- -p 3001              # ⚠️ 必须 3001（Google origin / Supabase Site URL 都按 3001 配的）
+npm install               # better-sqlite3 已移除,普通安装即可（无原生编译）
+npm run dev -- -p 3001    # ⚠️ 必须 3001（Google origin / Supabase Site URL 都按 3001 配的）
 ```
+> ⚠️ 数据层已迁到 Supabase/Postgres —— **必须有 `.env.local`**（含 Supabase URL + service_role key）才能跑,没有本地 SQLite 兜底了。
 
 **测连调（模拟点了 blind-bot 按钮）**:打开
 `http://localhost:3001/configure/rs-aria?line=roller-shade&img=https%3A%2F%2Fplacehold.co%2F640x480%2F2f5d50%2Ffff.png&cfg=%7B%22color%22%3A%22Emerald%22%2C%22translucency%22%3A%22Room%20Darkening%22%7D`
@@ -148,7 +146,7 @@ npm run dev -- -p 3001              # ⚠️ 必须 3001（Google origin / Supab
 ## 7. 下一步（建议优先级）
 
 1. **真人跑一遍登录**,确认 profiles 建行 + 邮箱关联。
-2. **把 quotes/orders 从 SQLite 迁到 Supabase/Postgres**(`lib/db.ts` 重写,边界干净;SQLite 无法部署到 serverless/多实例)。
+2. ✅ **已完成** —— quotes/orders/pricing 已迁到 Supabase/Postgres,`lib/db.ts` 走 service_role,better-sqlite3 已移除。**接下来 1b**:把报价/订单挂到登录用户名下（quotes 已加 nullable `owner_id` 列,待启用）+ 按 owner 过滤 + RLS。
 3. **子项目 4 真实变体映射**:把 `mapImportedConfig` 从 no-op 升级为真实的产品/颜色/遮光/选项映射 + 自动预选(需先定"quote 产品是否与 blind-bot 对齐"的产品决策)。
 4. **白标收尾**(任务 6):侧边栏/整体改名换 logo 换色、图片代理、(i) id 化 handoff。
 5. **phase 2:"Continue with BlindBot"** —— blind-bot server 加对外"校验身份+返 profile"接口(可复用 `middleware/adminAuth.js` 的 JWT 校验);解决按钮命名与白标冲突。
@@ -159,7 +157,7 @@ npm run dev -- -p 3001              # ⚠️ 必须 3001（Google origin / Supab
 
 ## 8. 已知坑
 - **GitHub 直连被墙**(这台机器):`github.com:443` 连不上;`ssh.github.com:443` 通、代理 `127.0.0.1:7897`(Clash Verge)通。git 推送需走代理或 SSH-over-443。
-- **better-sqlite3**:`npm install` 会因缺 Python 编译失败;用上面的镜像预编译二进制法,或 `npm config set better_sqlite3_binary_host "https://registry.npmmirror.com/-/binary/better-sqlite3"`。
+- **数据层已迁 Postgres**:better-sqlite3 已移除（缺 Python / 预编译二进制那个坑没了）。代价是 app 现在**必须有 Supabase env** 才能跑（数据层不像 auth 能优雅降级）。Supabase 里现有 6 张表:`profiles` + `pricing_versions`/`quotes`/`quote_items`/`orders`/`order_events`。
 - **端口**:quote 服务必须 3001(blind-bot 占 3000);Next 16 一个项目只允许一个 dev server,换端口要先杀旧进程。
 - **shared-ui** 是 GitHub tag + yalc 消费,改了源码要发版才会进 frontend。
 

@@ -3,21 +3,17 @@ import { notFound } from "next/navigation";
 import { RemoveItemButton, SubmitPreOrderButton } from "@/components/QuoteActions";
 import { Swatch } from "@/components/renders";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
-import { db, getLine, getProduct, getQuote } from "@/lib/db";
+import { getLine, getOrderRefByQuote, getProduct, getQuote } from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 import { fmtDate, usd } from "@/lib/format";
 
 export default async function QuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const quote = getQuote(Number(id));
+  const quote = await getQuote(Number(id));
   if (!quote) notFound();
 
   const order =
-    quote.status === "converted"
-      ? (db().prepare("SELECT id, ref FROM orders WHERE quoteId = ?").get(quote.id) as
-          | { id: number; ref: string }
-          | undefined)
-      : undefined;
+    quote.status === "converted" ? await getOrderRefByQuote(quote.id) : undefined;
 
   return (
     <div>

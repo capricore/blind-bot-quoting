@@ -12,10 +12,10 @@ const ACTOR_LABEL: Record<string, string> = {
   system: "System",
 };
 
-export default function Dashboard() {
-  const quotes = getQuotes();
-  const orders = getOrders();
-  const events = getRecentEvents(7);
+export default async function Dashboard() {
+  const quotes = await getQuotes();
+  const orders = await getOrders();
+  const events = await getRecentEvents(7);
 
   const draftQuotes = quotes.filter((q) => q.status === "draft");
   const draftValue = draftQuotes.reduce((s, q) => s + q.total, 0);

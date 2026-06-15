@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const product = getProduct(body.productId);
     if (!product) return NextResponse.json({ error: "Unknown product" }, { status: 404 });
     const line = getLine(product.lineId)!;
-    const pricing = getActivePricing(product.lineId);
+    const pricing = await getActivePricing(product.lineId);
     const computation = computeQuote(line, product, body.config, pricing.config, pricing.version);
     return NextResponse.json({ computation });
   } catch (err) {

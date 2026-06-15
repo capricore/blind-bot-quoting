@@ -16,12 +16,12 @@ export async function POST(req: Request) {
     const product = getProduct(body.productId);
     if (!product) return NextResponse.json({ error: "Unknown product" }, { status: 404 });
     const line = getLine(product.lineId)!;
-    const pricing = getActivePricing(product.lineId);
+    const pricing = await getActivePricing(product.lineId);
     const qty = Math.max(1, Math.min(500, Math.round(body.qty || 1)));
     // Recompute server-side — the client preview is never trusted for stored prices.
     const computation = computeQuote(line, product, body.config, pricing.config, pricing.version);
-    const quote = getOrCreateDraftQuote();
-    const item = addQuoteItem(quote.id, product, body.config, qty, computation);
+    const quote = await getOrCreateDraftQuote();
+    const item = await addQuoteItem(quote.id, product, body.config, qty, computation);
     return NextResponse.json({ quoteId: quote.id, quoteRef: quote.ref, item });
   } catch (err) {
     const status = err instanceof PricingError ? 422 : 500;
@@ -31,6 +31,6 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const { itemId } = (await req.json()) as { itemId: number };
-  removeQuoteItem(itemId);
+  await removeQuoteItem(itemId);
   return NextResponse.json({ ok: true });
 }
