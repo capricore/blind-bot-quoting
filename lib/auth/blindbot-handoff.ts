@@ -1,25 +1,48 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { admin } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import { blindbotAuth } from "@/lib/supabase/blindbot";
 import { ensureProfileLinked } from "@/lib/auth/profile";
 
 /**
- * Validate a blind-bot access_token, provision/link a quote account for that email, and
+ * Verify a blind-bot-issued handoff token of the form "<payload>.<sig>", where payload is
+ * base64url(JSON {email, exp}) and sig is HMAC-SHA256(payload) keyed by the shared
+ * QUOTE_HANDOFF_SECRET. Returns the email on success, or null (bad sig / expired / unset
+ * secret). The raw token only carries an email + short expiry — it can't act on blind-bot.
+ */
+function verifyHandoffToken(token: string): string | null {
+  const secret = process.env.QUOTE_HANDOFF_SECRET;
+  if (!secret) return null;
+  const dot = token.indexOf(".");
+  if (dot <= 0) return null;
+  const payload = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+
+  const expected = createHmac("sha256", secret).update(payload).digest("base64url");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+
+  let data: { email?: unknown; exp?: unknown };
+  try {
+    data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof data.email !== "string" || !data.email) return null;
+  if (typeof data.exp !== "number" || data.exp < Math.floor(Date.now() / 1000)) return null;
+  return data.email;
+}
+
+/**
+ * Validate a blind-bot handoff token, provision/link a quote account for that email, and
  * establish a quote session (cookies). Returns true on success; false means the caller
  * should fall back to manual login. Never throws.
  */
 export async function completeBlindbotHandoff(token: string): Promise<boolean> {
   try {
-    const bb = blindbotAuth();
-    if (!bb) return false;
-
-    const {
-      data: { user },
-      error,
-    } = await bb.auth.getUser(token);
-    if (error || !user?.email) return false;
-    const email = user.email;
+    const email = verifyHandoffToken(token);
+    if (!email) return false;
 
     // Provision (idempotent — an existing email simply errors and is ignored).
     await admin().auth.admin.createUser({ email, email_confirm: true });
