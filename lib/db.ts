@@ -50,6 +50,17 @@ export function getProduct(productId: string): Product | undefined {
   return PRODUCTS.find((p) => p.id === productId);
 }
 
+/** The signed-in retailer's profile fields used for the account display. */
+export async function getProfile(userId: string): Promise<{ email: string; company: string | null } | null> {
+  const { data, error } = await admin()
+    .from("profiles")
+    .select("email, company")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data ?? null) as { email: string; company: string | null } | null;
+}
+
 // ---------------- seed (runs once per process, idempotent) ----------------
 
 export const DEMO_RETAILER = "Harbor & Lane Interiors";

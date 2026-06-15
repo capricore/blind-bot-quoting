@@ -23,8 +23,18 @@ const NAV = [
   },
 ];
 
-export default function Sidebar({ draftCount }: { draftCount: number }) {
+export default function Sidebar({
+  draftCount,
+  accountName,
+  accountSub,
+}: {
+  draftCount: number;
+  accountName: string;
+  accountSub: string;
+}) {
   const pathname = usePathname();
+  const initials =
+    accountName.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-[#1a2336] text-white">
@@ -84,11 +94,11 @@ export default function Sidebar({ draftCount }: { draftCount: number }) {
       <div className="border-t border-white/10 px-5 py-4">
         <div className="flex items-center gap-3">
           <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-[#5b6b8f] to-[#3a4763] text-xs font-semibold">
-            HL
+            {initials}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-[12.5px] font-medium">Harbor &amp; Lane Interiors</div>
-            <div className="text-[10.5px] text-white/40">Retailer account · demo</div>
+            <div className="truncate text-[12.5px] font-medium">{accountName}</div>
+            <div className="truncate text-[10.5px] text-white/40">{accountSub}</div>
           </div>
         </div>
       </div>

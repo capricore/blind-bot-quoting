@@ -1,12 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Ensure the signed-in user has a profile row, and (once) try to link it to a
- * blind-bot account by matching email. Safe to call repeatedly.
+ * Ensure the signed-in user has a profile row, and (once) link it to a blind-bot
+ * account by matching email. When a match is found we also pull the retailer's
+ * blind-bot company name and store it on the profile, so the link is actually
+ * useful (the portal shows the real account, not a hardcoded demo name).
  *
- * Phase-1 linking only records that a match EXISTS (blindbot_linked_at + email);
- * it does NOT persist the blind-bot api_key (see spec D5 — avoid spreading creds).
- * A linking failure (blind-bot unreachable / no match) never blocks login.
+ * Safe to call repeatedly; any blind-bot failure (unreachable / no match) never
+ * blocks login — the user just stays unlinked.
  */
 export async function ensureProfileLinked(): Promise<void> {
   const supabase = await createClient();
@@ -30,34 +31,48 @@ export async function ensureProfileLinked(): Promise<void> {
     });
   }
 
-  // Try the email-based link once (until it succeeds).
+  // Link by email once: if blind-bot has a client for this email, record the link
+  // and copy over their company name.
   if (!existing?.blindbot_linked_at && user.email) {
-    const linked = await blindbotHasAccount(user.email);
-    if (linked) {
+    const apiKey = await blindbotApiKey(user.email);
+    if (apiKey) {
+      const company = await blindbotCompany(apiKey);
       await supabase
         .from("profiles")
         .update({
           blindbot_linked_at: new Date().toISOString(),
           blindbot_email: user.email,
+          ...(company ? { company } : {}),
         })
         .eq("id", user.id);
     }
   }
 }
 
-/** Returns true if blind-bot has a client account for this email. */
-async function blindbotHasAccount(email: string): Promise<boolean> {
-  const base = process.env.BLINDBOT_API_URL;
-  if (!base) return false;
+const base = () => (process.env.BLINDBOT_API_URL ?? "").replace(/\/$/, "");
+
+/** blind-bot client api_key for this email, or null if no such client. */
+async function blindbotApiKey(email: string): Promise<string | null> {
+  if (!base()) return null;
   try {
-    const res = await fetch(
-      `${base.replace(/\/$/, "")}/lookup-api-key?email=${encodeURIComponent(email)}`,
-      { cache: "no-store" }
-    );
-    if (!res.ok) return false;
+    const res = await fetch(`${base()}/lookup-api-key?email=${encodeURIComponent(email)}`, { cache: "no-store" });
+    if (!res.ok) return null;
     const data = (await res.json().catch(() => null)) as { apiKey?: string } | null;
-    return !!data?.apiKey;
+    return data?.apiKey || null;
   } catch {
-    return false; // blind-bot unreachable — don't block login
+    return null;
+  }
+}
+
+/** blind-bot company name for an api_key (via the public client-config), or null. */
+async function blindbotCompany(apiKey: string): Promise<string | null> {
+  if (!base()) return null;
+  try {
+    const res = await fetch(`${base()}/client-config/${encodeURIComponent(apiKey)}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => null)) as { name?: string } | null;
+    return data?.name?.trim() || null;
+  } catch {
+    return null;
   }
 }
