@@ -11,7 +11,10 @@ when a retailer who is logged into blind-bot clicks "Get a quote", they arrive a
 quote service already authenticated as the same identity — no separate sign-in.
 
 Both systems run on Supabase, but **different projects** (quote
-`ylcuuamsenvnqfnbhdmk`, blind-bot `iashgsuvdedpdmytdbgw`), so sessions are not shared.
+`ylcuuamsenvnqfnbhdmk`, blind-bot **auth** project `hwyucxmmdqbvsiuuskfw` — the one that
+issues the retailer's session/`access_token`; note blind-bot also has a separate
+`iashgsuvdedpdmytdbgw` project used only for render-image storage), so sessions are not
+shared.
 
 ## Decisions (locked)
 
@@ -53,14 +56,14 @@ Both systems run on Supabase, but **different projects** (quote
   current Supabase session (`supabase.auth.getSession()` → `access_token`). This is the
   only consumer change; nothing else in blind-bot is touched.
 - The `line → product` mapping moves to the quote side (quote owns its catalog), so the
-  form sends only `line` (`roller` | `drape`).
+  form sends only `line` (`roller-shade` | `drapery`, blind-bot's existing `QuoteLine`).
 
 ### Quote `POST /api/handoff` — route handler
 
 Reads form fields `token`, `line`, `img`, `cfg`. Builds the import destination
 `dest = /configure/${QUOTE_DEFAULT_PRODUCT[line]}` with `img`/`cfg`/`line` as query
-params (the existing import URL shape; `QUOTE_DEFAULT_PRODUCT = { roller: "rs-aria",
-drape: "dp-velluto" }`).
+params (the existing import URL shape; `QUOTE_DEFAULT_PRODUCT = { "roller-shade": "rs-aria",
+"drapery": "dp-velluto" }`).
 
 1. **Validate** — a Supabase client built from blind-bot's public env
    (`BLINDBOT_SUPABASE_URL`, `BLINDBOT_SUPABASE_ANON_KEY`):
