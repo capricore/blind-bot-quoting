@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { cx } from "./ui";
+import { Button, cx } from "./ui";
 
 export function DeleteDraftButton({ quoteId }: { quoteId: number }) {
   const router = useRouter();
@@ -32,20 +32,12 @@ export function DeleteDraftButton({ quoteId }: { quoteId: number }) {
       <div className="rounded-xl border border-red-200 bg-red-50/60 p-4">
         <p className="text-[13px] font-medium text-ink">Delete this draft and all its items?</p>
         <div className="mt-3 flex gap-2">
-          <button
-            onClick={del}
-            disabled={busy}
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50"
-          >
+          <Button variant="danger" onClick={del} busy={busy} className="py-2">
             {busy ? "Deleting…" : "Delete draft"}
-          </button>
-          <button
-            onClick={() => setConfirming(false)}
-            disabled={busy}
-            className="rounded-xl border border-line bg-surface px-4 py-2 text-sm font-medium text-ink-soft hover:bg-[#faf9f5]"
-          >
+          </Button>
+          <Button variant="secondary" onClick={() => setConfirming(false)} disabled={busy} className="py-2">
             Cancel
-          </button>
+          </Button>
         </div>
         {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
       </div>
@@ -92,29 +84,18 @@ export function SubmitPreOrderButton({ quoteId, total }: { quoteId: number; tota
             fulfillment pipeline.
           </p>
           <div className="mt-3 flex gap-2">
-            <button
-              onClick={submit}
-              disabled={busy}
-              className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#2a3756] disabled:opacity-50"
-            >
+            <Button variant="primary" onClick={submit} busy={busy} className="py-2">
               {busy ? "Submitting…" : "Confirm pre-order"}
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              disabled={busy}
-              className="rounded-xl border border-line bg-surface px-4 py-2 text-sm font-medium text-ink-soft hover:bg-[#faf9f5]"
-            >
+            </Button>
+            <Button variant="secondary" onClick={() => setConfirming(false)} disabled={busy} className="py-2">
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
-        <button
-          onClick={() => setConfirming(true)}
-          className="w-full rounded-xl bg-ink py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#2a3756] hover:shadow"
-        >
+        <Button variant="primary" onClick={() => setConfirming(true)} className="w-full py-3">
           Submit pre-order →
-        </button>
+        </Button>
       )}
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
     </div>
