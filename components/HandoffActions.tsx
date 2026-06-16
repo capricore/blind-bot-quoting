@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { cx } from "./ui";
+import { Button } from "./ui";
 
 /**
  * First-time handoff consent: records consent on the user (user_metadata) so future
@@ -21,15 +21,8 @@ export function ConsentContinueButton({ next, brand }: { next: string; brand: st
     window.location.assign(next);
   };
   return (
-    <button
-      onClick={go}
-      disabled={busy}
-      className={cx(
-        "w-full rounded-xl bg-ink py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#2a3756]",
-        busy && "opacity-50"
-      )}
-    >
+    <Button variant="primary" onClick={go} busy={busy} className="w-full py-3">
       {busy ? "Continuing…" : `Continue to ${brand}`}
-    </button>
+    </Button>
   );
 }
