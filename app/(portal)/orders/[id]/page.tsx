@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Swatch } from "@/components/renders";
 import { Badge, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
-import { canAccessOwned, requireUserId } from "@/lib/auth/user";
+import { canAccessOwned, requireUserId, userClient } from "@/lib/auth/user";
 import { getLine, getOrder, getOrderOwnerId, getProduct } from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 import { fmtDate, fmtDateTime, ORDER_STATUS_META, usd } from "@/lib/format";
@@ -17,10 +17,10 @@ const ACTOR_LABEL: Record<string, string> = {
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const order = await getOrder(Number(id));
+  const userId = await requireUserId(`/orders/${id}`);
+  const order = await getOrder(Number(id), await userClient());
   if (!order) notFound();
 
-  const userId = await requireUserId(`/orders/${id}`);
   if (!(await canAccessOwned(userId, await getOrderOwnerId(Number(id))))) notFound();
 
   const stageIdx = ORDER_STATUSES.indexOf(order.status);

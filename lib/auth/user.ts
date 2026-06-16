@@ -1,6 +1,18 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { admin } from "@/lib/supabase/admin";
 import { getProfile } from "@/lib/db";
+
+/**
+ * The Supabase client to use for the signed-in retailer's own data: the cookie/JWT
+ * client so Row-Level Security applies. Falls back to the service_role client only when
+ * Supabase auth isn't configured (no session possible anyway). Pass this into the
+ * `lib/db.ts` query helpers for retailer-facing reads/writes.
+ */
+export async function userClient(): Promise<SupabaseClient> {
+  return (await createClient()) ?? admin();
+}
 
 /** The signed-in user's id (= profiles.id = quotes.owner_id), or null if not signed in. */
 export async function getCurrentUserId(): Promise<string | null> {

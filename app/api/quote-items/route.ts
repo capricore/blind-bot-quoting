@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUserId } from "@/lib/auth/user";
+import { getCurrentUserId, userClient } from "@/lib/auth/user";
 import {
   addQuoteItem,
   getActivePricing,
@@ -23,8 +23,9 @@ export async function POST(req: Request) {
     const qty = Math.max(1, Math.min(500, Math.round(body.qty || 1)));
     // Recompute server-side — the client preview is never trusted for stored prices.
     const computation = computeQuote(line, product, body.config, pricing.config, pricing.version);
-    const quote = await getOrCreateDraftQuote(userId);
-    const item = await addQuoteItem(quote.id, product, body.config, qty, computation);
+    const sb = await userClient();
+    const quote = await getOrCreateDraftQuote(userId, undefined, sb);
+    const item = await addQuoteItem(quote.id, product, body.config, qty, computation, sb);
     return NextResponse.json({ quoteId: quote.id, quoteRef: quote.ref, item });
   } catch (err) {
     const status = err instanceof PricingError ? 422 : 500;
@@ -36,6 +37,6 @@ export async function DELETE(req: Request) {
   const userId = await getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const { itemId } = (await req.json()) as { itemId: number };
-  await removeQuoteItem(itemId);
+  await removeQuoteItem(itemId, await userClient());
   return NextResponse.json({ ok: true });
 }

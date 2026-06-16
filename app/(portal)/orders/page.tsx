@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { Card, EmptyState, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
-import { requireUserId } from "@/lib/auth/user";
+import { requireUserId, userClient } from "@/lib/auth/user";
 import { getOrders } from "@/lib/db";
 import { fmtDate, usd } from "@/lib/format";
 
 export default async function OrdersPage() {
   const ownerId = await requireUserId("/orders");
-  const orders = await getOrders(ownerId);
+  const orders = await getOrders(ownerId, await userClient());
 
   return (
     <div>

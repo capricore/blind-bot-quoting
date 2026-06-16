@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Badge, Card, LinkButton, PageHeader, Stat, StatusBadge } from "@/components/ui";
-import { requireUserId } from "@/lib/auth/user";
+import { requireUserId, userClient } from "@/lib/auth/user";
 import { getOrders, getProduct, getQuotes, getRecentEvents } from "@/lib/db";
 import { fmtDateTime, ORDER_STATUS_META, usd } from "@/lib/format";
 import { ORDER_STATUSES } from "@/lib/types";
@@ -14,9 +14,10 @@ const ACTOR_LABEL: Record<string, string> = {
 
 export default async function Dashboard() {
   const ownerId = await requireUserId("/");
-  const quotes = await getQuotes(ownerId);
-  const orders = await getOrders(ownerId);
-  const events = await getRecentEvents(7, ownerId);
+  const sb = await userClient();
+  const quotes = await getQuotes(ownerId, sb);
+  const orders = await getOrders(ownerId, sb);
+  const events = await getRecentEvents(7, ownerId, sb);
 
   const draftQuotes = quotes.filter((q) => q.status === "draft");
   const draftValue = draftQuotes.reduce((s, q) => s + q.total, 0);

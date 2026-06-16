@@ -5,6 +5,7 @@ import {
   ROLLER_PRICING_V1,
   ROLLER_PRICING_V2,
 } from "./catalog-data";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeQuote } from "./pricing";
 import { admin } from "./supabase/admin";
 import type {
@@ -264,9 +265,9 @@ async function nextRef(table: "quotes" | "orders", prefix: string): Promise<stri
   return nextRefFrom(count ?? 0, prefix);
 }
 
-export async function getDraftQuote(ownerId: string): Promise<QuoteRow | undefined> {
+export async function getDraftQuote(ownerId: string, sb: SupabaseClient = admin()): Promise<QuoteRow | undefined> {
   await ensureSeeded();
-  const { data, error } = await admin()
+  const { data, error } = await sb
     .from("quotes")
     .select(QUOTE_COLS)
     .eq("status", "draft")
@@ -278,11 +279,15 @@ export async function getDraftQuote(ownerId: string): Promise<QuoteRow | undefin
   return (data ?? undefined) as QuoteRow | undefined;
 }
 
-export async function getOrCreateDraftQuote(ownerId: string, projectName?: string): Promise<QuoteRow> {
-  const existing = await getDraftQuote(ownerId);
+export async function getOrCreateDraftQuote(
+  ownerId: string,
+  projectName?: string,
+  sb: SupabaseClient = admin()
+): Promise<QuoteRow> {
+  const existing = await getDraftQuote(ownerId, sb);
   if (existing) return existing;
-  const ref = await nextRef("quotes", "Q");
-  const { data, error } = await admin()
+  const ref = await nextRef("quotes", "Q"); // count across all quotes → service_role
+  const { data, error } = await sb
     .from("quotes")
     .insert({ ref, retailer: DEMO_RETAILER, status: "draft", owner_id: ownerId, project_name: projectName ?? null })
     .select(QUOTE_COLS)
@@ -296,32 +301,36 @@ export async function addQuoteItem(
   product: Product,
   config: ItemConfig,
   qty: number,
-  computation: QuoteComputation
+  computation: QuoteComputation,
+  sb: SupabaseClient = admin()
 ): Promise<QuoteItemRow> {
-  const { data, error } = await admin()
+  const { data, error } = await sb
     .from("quote_items")
     .insert({ quote_id: quoteId, product_id: product.id, line_id: product.lineId, qty, config, computation })
     .select(ITEM_COLS)
     .single();
   if (error) throw error;
-  await admin().from("quotes").update({ updated_at: new Date().toISOString() }).eq("id", quoteId);
+  await sb.from("quotes").update({ updated_at: new Date().toISOString() }).eq("id", quoteId);
   return data as unknown as QuoteItemRow;
 }
 
-export async function removeQuoteItem(itemId: number): Promise<void> {
-  const { error } = await admin().from("quote_items").delete().eq("id", itemId);
+export async function removeQuoteItem(itemId: number, sb: SupabaseClient = admin()): Promise<void> {
+  const { error } = await sb.from("quote_items").delete().eq("id", itemId);
   if (error) throw error;
 }
 
-export async function getQuotes(ownerId: string): Promise<(QuoteRow & { itemCount: number; total: number })[]> {
+export async function getQuotes(
+  ownerId: string,
+  sb: SupabaseClient = admin()
+): Promise<(QuoteRow & { itemCount: number; total: number })[]> {
   await ensureSeeded();
-  const { data: quotes, error } = await admin()
+  const { data: quotes, error } = await sb
     .from("quotes")
     .select(QUOTE_COLS)
     .or(`owner_id.eq.${ownerId},owner_id.is.null`)
     .order("id", { ascending: false });
   if (error) throw error;
-  const { data: items, error: e2 } = await admin().from("quote_items").select("quoteId:quote_id, qty, computation");
+  const { data: items, error: e2 } = await sb.from("quote_items").select("quoteId:quote_id, qty, computation");
   if (e2) throw e2;
   const aggs = (items ?? []) as unknown as ItemAgg[];
   return ((quotes ?? []) as unknown as QuoteRow[]).map((q) => {
@@ -332,13 +341,14 @@ export async function getQuotes(ownerId: string): Promise<(QuoteRow & { itemCoun
 }
 
 export async function getQuote(
-  id: number
+  id: number,
+  sb: SupabaseClient = admin()
 ): Promise<(QuoteRow & { items: QuoteItemRow[]; total: number }) | undefined> {
   await ensureSeeded();
-  const { data: q, error } = await admin().from("quotes").select(QUOTE_COLS).eq("id", id).maybeSingle();
+  const { data: q, error } = await sb.from("quotes").select(QUOTE_COLS).eq("id", id).maybeSingle();
   if (error) throw error;
   if (!q) return undefined;
-  const { data: items, error: e2 } = await admin()
+  const { data: items, error: e2 } = await sb
     .from("quote_items")
     .select(ITEM_COLS)
     .eq("quote_id", id)
@@ -350,29 +360,32 @@ export async function getQuote(
 }
 
 /** For the quote detail page: the order a converted quote turned into, if any. */
-export async function getOrderRefByQuote(quoteId: number): Promise<{ id: number; ref: string } | undefined> {
-  const { data, error } = await admin().from("orders").select("id, ref").eq("quote_id", quoteId).maybeSingle();
+export async function getOrderRefByQuote(
+  quoteId: number,
+  sb: SupabaseClient = admin()
+): Promise<{ id: number; ref: string } | undefined> {
+  const { data, error } = await sb.from("orders").select("id, ref").eq("quote_id", quoteId).maybeSingle();
   if (error) throw error;
   return (data ?? undefined) as { id: number; ref: string } | undefined;
 }
 
 // ---------------- orders ----------------
 
-export async function submitPreOrder(quoteId: number): Promise<OrderRow> {
-  const quote = await getQuote(quoteId);
+export async function submitPreOrder(quoteId: number, sb: SupabaseClient = admin()): Promise<OrderRow> {
+  const quote = await getQuote(quoteId, sb);
   if (!quote) throw new Error("Quote not found");
   if (quote.status !== "draft") throw new Error("Quote already converted");
   if (quote.items.length === 0) throw new Error("Quote has no items");
 
-  const ref = await nextRef("orders", "PO");
-  await admin().from("quotes").update({ status: "converted", updated_at: new Date().toISOString() }).eq("id", quoteId);
-  const { data: order, error } = await admin()
+  const ref = await nextRef("orders", "PO"); // count across all orders → service_role
+  await sb.from("quotes").update({ status: "converted", updated_at: new Date().toISOString() }).eq("id", quoteId);
+  const { data: order, error } = await sb
     .from("orders")
     .insert({ ref, quote_id: quoteId, status: "submitted" })
     .select(ORDER_COLS)
     .single();
   if (error) throw error;
-  await admin().from("order_events").insert({
+  await sb.from("order_events").insert({
     order_id: (order as unknown as OrderRow).id,
     status: "submitted",
     actor: "retailer",
@@ -389,19 +402,19 @@ export type OrderListRow = OrderRow & {
   total: number;
 };
 
-export async function getOrders(ownerId?: string): Promise<OrderListRow[]> {
+export async function getOrders(ownerId?: string, sb: SupabaseClient = admin()): Promise<OrderListRow[]> {
   await ensureSeeded();
-  const { data: orders, error } = await admin().from("orders").select(ORDER_COLS).order("id", { ascending: false });
+  const { data: orders, error } = await sb.from("orders").select(ORDER_COLS).order("id", { ascending: false });
   if (error) throw error;
   const orderRows = (orders ?? []) as unknown as OrderRow[];
   if (orderRows.length === 0) return [];
 
   const quoteIds = [...new Set(orderRows.map((o) => o.quoteId))];
-  const { data: quotes } = await admin()
+  const { data: quotes } = await sb
     .from("quotes")
     .select("id, ref, retailer, ownerId:owner_id, projectName:project_name")
     .in("id", quoteIds);
-  const { data: items } = await admin().from("quote_items").select("quoteId:quote_id, qty, computation").in("quote_id", quoteIds);
+  const { data: items } = await sb.from("quote_items").select("quoteId:quote_id, qty, computation").in("quote_id", quoteIds);
   const qById = new Map(
     ((quotes ?? []) as unknown as { id: number; ref: string; retailer: string; ownerId: string | null; projectName: string | null }[]).map((q) => [q.id, q])
   );
@@ -429,16 +442,17 @@ export async function getOrders(ownerId?: string): Promise<OrderListRow[]> {
 }
 
 export async function getOrder(
-  id: number
+  id: number,
+  sb: SupabaseClient = admin()
 ): Promise<(OrderRow & { quote: NonNullable<Awaited<ReturnType<typeof getQuote>>>; events: OrderEventRow[] }) | undefined> {
   await ensureSeeded();
-  const { data: o, error } = await admin().from("orders").select(ORDER_COLS).eq("id", id).maybeSingle();
+  const { data: o, error } = await sb.from("orders").select(ORDER_COLS).eq("id", id).maybeSingle();
   if (error) throw error;
   if (!o) return undefined;
   const order = o as unknown as OrderRow;
-  const quote = await getQuote(order.quoteId);
+  const quote = await getQuote(order.quoteId, sb);
   if (!quote) return undefined;
-  const { data: events, error: e2 } = await admin()
+  const { data: events, error: e2 } = await sb
     .from("order_events")
     .select(EVENT_COLS)
     .eq("order_id", id)
@@ -465,9 +479,13 @@ export async function updateOrder(
   return data as unknown as OrderRow;
 }
 
-export async function getRecentEvents(limit = 10, ownerId?: string): Promise<(OrderEventRow & { orderRef: string })[]> {
+export async function getRecentEvents(
+  limit = 10,
+  ownerId?: string,
+  sb: SupabaseClient = admin()
+): Promise<(OrderEventRow & { orderRef: string })[]> {
   await ensureSeeded();
-  const { data, error } = await admin()
+  const { data, error } = await sb
     .from("order_events")
     .select(`${EVENT_COLS}, orders(ref, quotes(owner_id))`)
     .order("id", { ascending: false })
