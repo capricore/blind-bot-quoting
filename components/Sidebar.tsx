@@ -6,12 +6,26 @@ import { createClient } from "@/lib/supabase/client";
 import { BRAND } from "@/lib/brand";
 import { cx } from "./ui";
 
-const NAV = [
+type NavItem = {
+  href?: string;
+  label: string;
+  icon: string;
+  children?: { href: string; label: string }[];
+};
+
+const NAV: { section: string; items: NavItem[] }[] = [
   {
     section: "Retailer Portal",
     items: [
       { href: "/", label: "Dashboard", icon: "▦" },
-      { href: "/catalog", label: "Catalog", icon: "❖" },
+      {
+        label: "Catalog",
+        icon: "❖",
+        children: [
+          { href: "/catalog", label: "Products" },
+          { href: "/catalog/accessories", label: "Accessory" },
+        ],
+      },
       { href: "/quotes", label: "Quotes", icon: "≣" },
       { href: "/orders", label: "Pre-Orders", icon: "⬡" },
     ],
@@ -40,6 +54,12 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const isActive = (href: string) =>
+    href === "/"
+      ? pathname === "/"
+      : href === "/catalog"
+        ? pathname === "/catalog" || pathname.startsWith("/configure")
+        : pathname.startsWith(href);
   const initials =
     accountName.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 
@@ -70,12 +90,51 @@ export default function Sidebar({
             </div>
             <div className="space-y-0.5">
               {group.items.map((item) => {
-                const active =
-                  item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                // Parent with nested children (Catalog → Products / Accessory)
+                if (item.children) {
+                  const groupActive = item.children.some((c) => isActive(c.href));
+                  return (
+                    <div key={item.label}>
+                      <div className="flex items-center gap-3 rounded-xl px-3 py-2 text-[13.5px] font-medium text-white/60">
+                        <span
+                          className={cx(
+                            "flex w-5 justify-center text-[15px]",
+                            groupActive ? "text-brass" : "text-white/40"
+                          )}
+                        >
+                          {item.icon}
+                        </span>
+                        {item.label}
+                      </div>
+                      <div className="mb-0.5 ml-[26px] space-y-0.5 border-l border-white/10 pl-3">
+                        {item.children.map((c) => {
+                          const active = isActive(c.href);
+                          return (
+                            <Link
+                              key={c.href}
+                              href={c.href}
+                              className={cx(
+                                "block rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors",
+                                active
+                                  ? "bg-white/10 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+                                  : "text-white/55 hover:bg-white/5 hover:text-white/90"
+                              )}
+                            >
+                              {c.label}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+
+                const href = item.href!;
+                const active = isActive(href);
                 return (
                   <Link
-                    key={item.href}
-                    href={item.href}
+                    key={href}
+                    href={href}
                     className={cx(
                       "group flex items-center gap-3 rounded-xl px-3 py-2 text-[13.5px] font-medium transition-colors",
                       active
@@ -92,7 +151,7 @@ export default function Sidebar({
                       {item.icon}
                     </span>
                     {item.label}
-                    {item.href === "/quotes" && draftCount > 0 && (
+                    {href === "/quotes" && draftCount > 0 && (
                       <span className="ml-auto rounded-full bg-brass px-1.5 py-0.5 text-[10px] font-bold leading-none text-[#1a2336]">
                         {draftCount}
                       </span>
