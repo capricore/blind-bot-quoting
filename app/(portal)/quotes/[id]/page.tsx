@@ -3,21 +3,22 @@ import { notFound } from "next/navigation";
 import { RemoveItemButton, SubmitPreOrderButton } from "@/components/QuoteActions";
 import { Swatch } from "@/components/renders";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
-import { canAccessOwned, requireUserId } from "@/lib/auth/user";
+import { canAccessOwned, requireUserId, userClient } from "@/lib/auth/user";
 import { getLine, getOrderRefByQuote, getProduct, getQuote, getQuoteOwnerId } from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 import { fmtDate, usd } from "@/lib/format";
 
 export default async function QuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const quote = await getQuote(Number(id));
+  const userId = await requireUserId(`/quotes/${id}`);
+  const sb = await userClient();
+  const quote = await getQuote(Number(id), sb);
   if (!quote) notFound();
 
-  const userId = await requireUserId(`/quotes/${id}`);
   if (!(await canAccessOwned(userId, await getQuoteOwnerId(Number(id))))) notFound();
 
   const order =
-    quote.status === "converted" ? await getOrderRefByQuote(quote.id) : undefined;
+    quote.status === "converted" ? await getOrderRefByQuote(quote.id, sb) : undefined;
 
   return (
     <div>

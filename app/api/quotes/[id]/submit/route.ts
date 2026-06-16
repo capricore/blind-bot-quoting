@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canAccessOwned, getCurrentUserId } from "@/lib/auth/user";
+import { canAccessOwned, getCurrentUserId, userClient } from "@/lib/auth/user";
 import { getQuoteOwnerId, submitPreOrder } from "@/lib/db";
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -10,7 +10,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     if (!(await canAccessOwned(uid, await getQuoteOwnerId(Number(id))))) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    const order = await submitPreOrder(Number(id));
+    const order = await submitPreOrder(Number(id), await userClient());
     return NextResponse.json({ order });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
