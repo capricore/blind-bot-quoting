@@ -39,8 +39,10 @@ Routes live under the `app/(portal)/` group (sidebar layout); `app/login`, `app/
 - `server.ts` → `createClient()` = cookie/JWT client (subject to RLS). For retailer-facing
   reads/writes so the DB enforces ownership.
 
-`lib/db.ts` is the single access layer: every retailer query helper takes an optional Supabase
-client defaulting to `admin()`; retailer call sites pass `userClient()` (from `lib/auth/user.ts`)
+`lib/db/` is the single access layer (cohesive submodules — `catalog`, `profile`, `ownership`,
+`pricing`, `quotes`, `orders`, plus internal `seed`/`internal`; the `index.ts` barrel preserves
+the `@/lib/db` import surface): every retailer query helper takes an optional Supabase client
+defaulting to `admin()`; retailer call sites pass `userClient()` (from `lib/auth/user.ts`)
 so **RLS applies**. RLS policies live in `supabase/migrations/0001_rls.sql` (must be run once in
 the Supabase SQL editor — see `DEPLOY.md`). Ownership: `quotes.owner_id` (NULL = public demo);
 children inherit via the parent quote; admins (`profiles.role`) see all. App-layer guards
@@ -87,5 +89,6 @@ bilingual (中文/EN) supplier workbook (`GET /api/orders/:id/excel`).
 
 - Route handler / page props are async: `params` and `searchParams` are `Promise`s — await them.
 - Domain types are centralized in `lib/types.ts`; DB rows use snake_case→camelCase column aliases
-  in `lib/db.ts` so everything above works with the camelCase domain types.
+  in `lib/db/` (the shared column-alias constants live in `lib/db/internal.ts`) so everything
+  above works with the camelCase domain types.
 - Feature work follows a spec-first flow: design specs + plans under `docs/superpowers/`.
