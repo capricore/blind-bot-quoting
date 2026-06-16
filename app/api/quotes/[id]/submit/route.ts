@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
-import { canAccessOwned, getCurrentUserId, userClient } from "@/lib/auth/user";
-import { getQuoteOwnerId, submitPreOrder } from "@/lib/db";
+import { requireQuoteAccess } from "@/lib/auth/api";
+import { submitPreOrder } from "@/lib/db";
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireQuoteAccess(ctx);
+  if (gate instanceof NextResponse) return gate;
+  const { id, sb } = gate;
   try {
-    const { id } = await ctx.params;
-    const uid = await getCurrentUserId();
-    if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!(await canAccessOwned(uid, await getQuoteOwnerId(Number(id))))) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    const order = await submitPreOrder(Number(id), await userClient());
+    const order = await submitPreOrder(id, sb);
     return NextResponse.json({ order });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
