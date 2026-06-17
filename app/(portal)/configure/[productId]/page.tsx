@@ -1,25 +1,38 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import Configurator from "@/components/Configurator";
-import { getActivePricing, getLine, getProduct } from "@/lib/db";
+import { userClient } from "@/lib/auth/user";
+import { getActivePricing, getLine, getProduct, getQuote } from "@/lib/db";
 import { parseImportPayload } from "@/lib/import";
 import { createClient } from "@/lib/supabase/server";
+import { isAccessoryConfig, type ItemConfig } from "@/lib/types";
 
 export default async function ConfigurePage({
   params,
   searchParams,
 }: {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ img?: string; cfg?: string; line?: string; quote?: string }>;
+  searchParams: Promise<{ img?: string; cfg?: string; line?: string; quote?: string; item?: string }>;
 }) {
   const { productId } = await params;
-  const { img, cfg, line: lineParam, quote } = await searchParams;
+  const { img, cfg, line: lineParam, quote, item } = await searchParams;
   const quoteId = quote && Number.isInteger(Number(quote)) ? Number(quote) : undefined;
+  const itemId = item && Number.isInteger(Number(item)) ? Number(item) : undefined;
   const product = getProduct(productId);
   if (!product) notFound();
   const line = getLine(product.lineId)!;
   const pricing = await getActivePricing(product.lineId);
   const imported = parseImportPayload(img, cfg);
+
+  // Editing an existing line: load its config (RLS-scoped — only the user's own quote).
+  let editItem: { id: number; config: ItemConfig; qty: number } | undefined;
+  if (quoteId && itemId) {
+    const quote = await getQuote(quoteId, await userClient());
+    const found = quote?.items.find((i) => i.id === itemId);
+    if (found && found.productId === productId && !isAccessoryConfig(found.config)) {
+      editItem = { id: found.id, config: found.config, qty: found.qty };
+    }
+  }
 
   // Cross-system handoff requires a signed-in retailer: if a design is being
   // imported and there's no session, send them to login first and come back
@@ -63,6 +76,7 @@ export default async function ConfigurePage({
         leadTimeDays={line.leadTimeDays}
         imported={imported}
         quoteId={quoteId}
+        editItem={editItem}
       />
     </div>
   );

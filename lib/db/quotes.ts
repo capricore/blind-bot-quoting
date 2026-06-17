@@ -133,6 +133,25 @@ export async function removeQuoteItem(itemId: number, sb: SupabaseClient = admin
   if (error) throw error;
 }
 
+/** Update an existing quote line (re-configured product, or just a qty change). */
+export async function updateQuoteItem(
+  itemId: number,
+  patch: { config?: ItemConfig; computation?: QuoteComputation; qty?: number },
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  const cols: Record<string, unknown> = {};
+  if (patch.config !== undefined) cols.config = patch.config;
+  if (patch.computation !== undefined) cols.computation = patch.computation;
+  if (patch.qty !== undefined) cols.qty = patch.qty;
+  if (Object.keys(cols).length === 0) return;
+  const { data, error } = await sb.from("quote_items").update(cols).eq("id", itemId).select("quote_id").single();
+  if (error) throw error;
+  await sb
+    .from("quotes")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", (data as { quote_id: number }).quote_id);
+}
+
 /** Delete a draft quote and all its items. Items first (in case the FK isn't cascade). */
 export async function deleteQuote(quoteId: number, sb: SupabaseClient = admin()): Promise<void> {
   await sb.from("quote_items").delete().eq("quote_id", quoteId);
