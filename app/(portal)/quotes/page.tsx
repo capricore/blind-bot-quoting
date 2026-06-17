@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { QuoteDetailsDrawer } from "@/components/QuoteDetailsDrawer";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { requireUserId, userClient } from "@/lib/auth/user";
 import { getQuotes } from "@/lib/db";
@@ -14,7 +15,7 @@ export default async function QuotesPage() {
         eyebrow="Quoting"
         title="Quotes"
         description="Auto-priced by the backend formula engine from catalog, variations and dimensions. Submit a draft to convert it into a supply-chain pre-order."
-        actions={<LinkButton href="/catalog">New quote item →</LinkButton>}
+        actions={<QuoteDetailsDrawer mode="create" />}
       />
 
       {quotes.length === 0 ? (
@@ -30,6 +31,9 @@ export default async function QuotesPage() {
               <tr className="border-b border-line bg-[#fafaf7] text-left text-[11px] font-semibold uppercase tracking-wider text-muted">
                 <th className="px-5 py-3">Quote</th>
                 <th className="px-5 py-3">Project</th>
+                <th className="px-5 py-3">Contact</th>
+                <th className="px-5 py-3">Sidemark</th>
+                <th className="px-5 py-3">PO</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3 text-right">Items</th>
                 <th className="px-5 py-3 text-right">Total</th>
@@ -45,6 +49,9 @@ export default async function QuotesPage() {
                     </Link>
                   </td>
                   <td className="px-5 py-3.5 text-ink-soft">{q.projectName ?? "—"}</td>
+                  <td className="px-5 py-3.5 text-ink-soft">{q.customerName ?? "—"}</td>
+                  <td className="px-5 py-3.5 text-ink-soft">{q.sidemark ?? "—"}</td>
+                  <td className="px-5 py-3.5 text-ink-soft">{q.po ?? "—"}</td>
                   <td className="px-5 py-3.5">
                     {q.status === "draft" ? (
                       <Badge tone="amber">Draft</Badge>
