@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeleteDraftButton, RemoveItemButton, SubmitPreOrderButton } from "@/components/QuoteActions";
 import { QuoteDetailsDrawer } from "@/components/QuoteDetailsDrawer";
+import { LineQtyEditor } from "@/components/LineQtyEditor";
 import { Swatch } from "@/components/renders";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { canAccessOwned, requireUserId, userClient } from "@/lib/auth/user";
@@ -121,8 +122,11 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
             {quote.status === "draft" && (
-              <div className="flex justify-end">
+              <div className="flex flex-wrap justify-end gap-2">
                 <LinkButton href={`/catalog?quote=${quote.id}`}>+ Add product</LinkButton>
+                <LinkButton href={`/catalog/accessories?quote=${quote.id}`} variant="secondary">
+                  + Add accessory
+                </LinkButton>
               </div>
             )}
             {quote.items.map((item) => {
@@ -155,7 +159,8 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                           </div>
                         </div>
                         {quote.status === "draft" && (
-                          <div className="mt-2 flex justify-end">
+                          <div className="mt-3 flex items-center justify-between">
+                            <LineQtyEditor itemId={item.id} qty={item.qty} />
                             <RemoveItemButton itemId={item.id} />
                           </div>
                         )}
@@ -178,7 +183,11 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <Link
-                            href={`/configure/${product.id}`}
+                            href={
+                              quote.status === "draft"
+                                ? `/configure/${product.id}?quote=${quote.id}&item=${item.id}`
+                                : `/configure/${product.id}`
+                            }
                             className="text-[15px] font-semibold text-ink hover:text-brass"
                           >
                             {product.name}
@@ -186,6 +195,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                           <div className="mt-0.5 text-xs text-muted">
                             {line.name} · {product.sku} · {desc.colorName} · {desc.opacityLabel}
                           </div>
+                          {desc.location && (
+                            <div className="mt-1 text-[12px] font-medium text-ink-soft">📍 {desc.location}</div>
+                          )}
                         </div>
                         <div className="text-right">
                           <div className="font-semibold tabular-nums text-ink">
@@ -197,16 +209,30 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                         </div>
                       </div>
                       <div className="mt-2 text-[12.5px] text-ink-soft">{desc.dims}</div>
+                      {desc.note && (
+                        <div className="mt-1 text-[11.5px] italic text-muted">Note: {desc.note}</div>
+                      )}
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {desc.options.map((o) => (
                           <span key={o} className="rounded-md bg-[#f1efe9] px-2 py-0.5 text-[11px] font-medium text-ink-soft">
                             {o}
                           </span>
                         ))}
-                        <span className="ml-auto">
-                          {quote.status === "draft" && <RemoveItemButton itemId={item.id} />}
-                        </span>
                       </div>
+                      {quote.status === "draft" && (
+                        <div className="mt-3 flex items-center justify-between">
+                          <LineQtyEditor itemId={item.id} qty={item.qty} />
+                          <div className="flex items-center gap-3">
+                            <Link
+                              href={`/configure/${product.id}?quote=${quote.id}&item=${item.id}`}
+                              className="text-xs font-medium text-brass transition-colors hover:underline"
+                            >
+                              Edit
+                            </Link>
+                            <RemoveItemButton itemId={item.id} />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Card>

@@ -27,6 +27,7 @@ export default function Configurator({
   leadTimeDays,
   imported,
   quoteId,
+  editItem,
 }: {
   product: Product;
   line: ProductLine;
@@ -35,6 +36,8 @@ export default function Configurator({
   imported?: ImportPayload | null;
   /** When set, "Add to quote" adds straight to this quote (the quote's "Add Product" flow). */
   quoteId?: number;
+  /** When set, the configurator edits this existing line (pre-filled) and updates it in place. */
+  editItem?: { id: number; config: ItemConfig; qty: number };
 }) {
   const router = useRouter();
 
@@ -54,22 +57,27 @@ export default function Configurator({
       )
     : [];
 
-  const [colorId, setColorId] = useState(prefill.colorId ?? product.colors[0].id);
-  const [opacityId, setOpacityId] = useState<OpacityId>(prefill.opacityId ?? product.validOpacities[0]);
+  const [colorId, setColorId] = useState(editItem?.config.colorId ?? prefill.colorId ?? product.colors[0].id);
+  const [opacityId, setOpacityId] = useState<OpacityId>(
+    editItem?.config.opacityId ?? prefill.opacityId ?? product.validOpacities[0]
+  );
   const [options, setOptions] = useState<Record<string, string>>(() => ({
     ...Object.fromEntries(line.optionGroups.map((g) => [g.key, g.options[0].id])),
     ...(prefill.options ?? {}),
+    ...(editItem?.config.options ?? {}),
   }));
   const [dims, setDims] = useState<Record<string, string>>(() => {
     const base = Object.fromEntries(
       line.dimensionFields.map((f) => [f.key, String(DEFAULT_DIMS[line.id]?.[f.key] ?? f.min)])
     );
-    if (prefill.dimensions) {
-      for (const [k, v] of Object.entries(prefill.dimensions)) base[k] = String(v);
+    for (const [k, v] of Object.entries(editItem?.config.dimensions ?? prefill.dimensions ?? {})) {
+      base[k] = String(v);
     }
     return base;
   });
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState(editItem?.qty ?? 1);
+  const [lineLocation, setLineLocation] = useState(editItem?.config.location ?? "");
+  const [note, setNote] = useState(editItem?.config.note ?? "");
 
   // Real product photos (local). No per-color photos upstream, so changing color/opacity
   // updates the swatches but not the hero image; the gallery lets the user flip through shots.
@@ -101,8 +109,10 @@ export default function Configurator({
       dimensions: Object.fromEntries(
         Object.entries(dims).map(([k, v]) => [k, parseFloat(v)])
       ),
+      ...(lineLocation.trim() ? { location: lineLocation.trim() } : {}),
+      ...(note.trim() ? { note: note.trim() } : {}),
     }),
-    [colorId, opacityId, options, dims]
+    [colorId, opacityId, options, dims, lineLocation, note]
   );
 
 
@@ -161,6 +171,28 @@ export default function Configurator({
     if (!computation) return;
     setAdding(true);
     setPriceError(null);
+    // Editing an existing line → re-price and update it in place.
+    if (editItem) {
+      try {
+        const r = await fetch("/api/quote-items", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId: editItem.id, productId: product.id, config, qty }),
+        });
+        if (r.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
+          return;
+        }
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? "Could not update line");
+        if (quoteId) router.push(`/quotes/${quoteId}`);
+        router.refresh();
+      } catch (e) {
+        setPriceError((e as Error).message);
+        setAdding(false);
+      }
+      return;
+    }
     // Adding from a specific quote's "Add Product" → straight into that quote.
     if (quoteId) {
       try {
@@ -397,6 +429,29 @@ export default function Configurator({
                 ))}
               </div>
             </div>
+
+            {/* window location + special instructions */}
+            <div className="mt-5 space-y-3">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted">Window / location</span>
+                <input
+                  value={lineLocation}
+                  onChange={(e) => setLineLocation(e.target.value)}
+                  placeholder="e.g. Master bedroom — left window"
+                  className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted">Special instructions</span>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                  placeholder="Notes for the workroom (optional)"
+                  className="mt-1 w-full resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink"
+                />
+              </label>
+            </div>
           </Card>
 
           {/* price + add */}
@@ -446,7 +501,15 @@ export default function Configurator({
                   : "cursor-not-allowed bg-[#e9e6dd] text-muted"
               )}
             >
-              {adding ? "Adding…" : quoteId ? "Add to this quote" : "Add to quote"}
+              {adding
+                ? editItem
+                  ? "Updating…"
+                  : "Adding…"
+                : editItem
+                  ? "Update line"
+                  : quoteId
+                    ? "Add to this quote"
+                    : "Add to quote"}
             </button>
           </Card>
         </div>

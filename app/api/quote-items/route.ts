@@ -9,6 +9,7 @@ import {
   getProduct,
   getQuote,
   removeQuoteItem,
+  updateQuoteItem,
 } from "@/lib/db";
 import { getAccessoryCategory, getAccessoryModel } from "@/lib/accessories-data";
 import { computeQuote, PricingError } from "@/lib/pricing";
@@ -73,6 +74,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ quoteId: quote.id, quoteRef: quote.ref, item });
   } catch (err) {
     if (err instanceof PickError) return NextResponse.json({ error: err.message }, { status: err.status });
+    const status = err instanceof PricingError ? 422 : 500;
+    return NextResponse.json({ error: (err as Error).message }, { status });
+  }
+}
+
+/**
+ * Update a line: a product re-config (`{itemId, productId, config, qty?}` → re-priced
+ * server-side) or just a quantity change (`{itemId, qty}`, used by the line qty stepper).
+ */
+export async function PATCH(req: Request) {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+    const body = (await req.json()) as { itemId: number; productId?: string; config?: ItemConfig; qty?: number };
+    const itemId = Number(body.itemId);
+    if (!Number.isInteger(itemId)) return NextResponse.json({ error: "Bad item id" }, { status: 400 });
+    const qty = body.qty != null ? Math.max(1, Math.min(500, Math.round(body.qty))) : undefined;
+    const sb = await userClient();
+
+    if (body.config && body.productId) {
+      const product = getProduct(body.productId);
+      if (!product) return NextResponse.json({ error: "Unknown product" }, { status: 404 });
+      const line = getLine(product.lineId)!;
+      const pricing = await getActivePricing(product.lineId);
+      const computation = computeQuote(line, product, body.config, pricing.config, pricing.version);
+      await updateQuoteItem(itemId, { config: body.config, computation, qty }, sb);
+    } else {
+      if (qty === undefined) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+      await updateQuoteItem(itemId, { qty }, sb);
+    }
+    return NextResponse.json({ ok: true });
+  } catch (err) {
     const status = err instanceof PricingError ? 422 : 500;
     return NextResponse.json({ error: (err as Error).message }, { status });
   }

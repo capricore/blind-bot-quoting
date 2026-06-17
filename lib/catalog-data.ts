@@ -92,6 +92,41 @@ export const PRODUCT_LINES: ProductLine[] = [
           { id: "brown", name: "Brown" },
         ],
       },
+      {
+        key: "controlStyle",
+        label: "Operation style",
+        options: [
+          { id: "standard", name: "Standard" },
+          { id: "bottom-up", name: "Bottom-up" },
+          { id: "top-down", name: "Top-down" },
+          { id: "tdbu", name: "Top-down / bottom-up" },
+        ],
+      },
+      {
+        key: "bottomrail",
+        label: "Bottom rail",
+        options: [
+          { id: "standard", name: "Standard" },
+          { id: "wrapped", name: "Fabric-wrapped" },
+          { id: "sealed", name: "Sealed / weighted" },
+        ],
+      },
+      {
+        key: "railroad",
+        label: "Railroad fabric",
+        options: [
+          { id: "no", name: "Standard run" },
+          { id: "yes", name: "Railroaded", hint: "Run fabric sideways for wide windows" },
+        ],
+      },
+      {
+        key: "sideBySide",
+        label: "Side-by-side",
+        options: [
+          { id: "no", name: "Single shade" },
+          { id: "yes", name: "Side-by-side", hint: "Multiple shades on one headrail" },
+        ],
+      },
     ],
   },
   {
