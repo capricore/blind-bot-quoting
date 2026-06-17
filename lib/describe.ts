@@ -15,5 +15,7 @@ export function describeConfig(line: ProductLine, product: Product, config: Item
     opacityLabel: OPACITY_LABELS[config.opacityId] ?? config.opacityId,
     options,
     dims,
+    location: config.location,
+    note: config.note,
   };
 }

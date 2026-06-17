@@ -76,6 +76,8 @@ export default function Configurator({
     return base;
   });
   const [qty, setQty] = useState(editItem?.qty ?? 1);
+  const [lineLocation, setLineLocation] = useState(editItem?.config.location ?? "");
+  const [note, setNote] = useState(editItem?.config.note ?? "");
 
   // Real product photos (local). No per-color photos upstream, so changing color/opacity
   // updates the swatches but not the hero image; the gallery lets the user flip through shots.
@@ -107,8 +109,10 @@ export default function Configurator({
       dimensions: Object.fromEntries(
         Object.entries(dims).map(([k, v]) => [k, parseFloat(v)])
       ),
+      ...(lineLocation.trim() ? { location: lineLocation.trim() } : {}),
+      ...(note.trim() ? { note: note.trim() } : {}),
     }),
-    [colorId, opacityId, options, dims]
+    [colorId, opacityId, options, dims, lineLocation, note]
   );
 
 
@@ -424,6 +428,29 @@ export default function Configurator({
                   </label>
                 ))}
               </div>
+            </div>
+
+            {/* window location + special instructions */}
+            <div className="mt-5 space-y-3">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted">Window / location</span>
+                <input
+                  value={lineLocation}
+                  onChange={(e) => setLineLocation(e.target.value)}
+                  placeholder="e.g. Master bedroom — left window"
+                  className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted">Special instructions</span>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={2}
+                  placeholder="Notes for the workroom (optional)"
+                  className="mt-1 w-full resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink"
+                />
+              </label>
             </div>
           </Card>
 

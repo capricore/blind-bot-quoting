@@ -195,6 +195,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                           <div className="mt-0.5 text-xs text-muted">
                             {line.name} · {product.sku} · {desc.colorName} · {desc.opacityLabel}
                           </div>
+                          {desc.location && (
+                            <div className="mt-1 text-[12px] font-medium text-ink-soft">📍 {desc.location}</div>
+                          )}
                         </div>
                         <div className="text-right">
                           <div className="font-semibold tabular-nums text-ink">
@@ -206,6 +209,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                         </div>
                       </div>
                       <div className="mt-2 text-[12.5px] text-ink-soft">{desc.dims}</div>
+                      {desc.note && (
+                        <div className="mt-1 text-[11.5px] italic text-muted">Note: {desc.note}</div>
+                      )}
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {desc.options.map((o) => (
                           <span key={o} className="rounded-md bg-[#f1efe9] px-2 py-0.5 text-[11px] font-medium text-ink-soft">

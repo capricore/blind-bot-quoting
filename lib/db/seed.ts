@@ -74,12 +74,12 @@ async function seed(): Promise<void> {
     {
       productId: "rs-roller-shade",
       qty: 6,
-      config: { colorId: "gray", opacityId: "privacy", options: { mount: "inside", control: "cordless", headrail: "white-cassette", sideChannel: "none" }, dimensions: { width: 120, height: 160 } },
+      config: { colorId: "gray", opacityId: "privacy", options: { mount: "inside", control: "cordless", headrail: "white-cassette", sideChannel: "none", controlStyle: "standard", bottomrail: "standard", railroad: "no", sideBySide: "no" }, dimensions: { width: 120, height: 160 } },
     },
     {
       productId: "rs-roller-shade",
       qty: 2,
-      config: { colorId: "charcoal", opacityId: "blackout", options: { mount: "outside", control: "motorized", headrail: "fascia", sideChannel: "black" }, dimensions: { width: 180, height: 210 } },
+      config: { colorId: "charcoal", opacityId: "blackout", options: { mount: "outside", control: "motorized", headrail: "fascia", sideChannel: "black", controlStyle: "standard", bottomrail: "standard", railroad: "no", sideBySide: "no" }, dimensions: { width: 180, height: 210 } },
     },
   ]);
 

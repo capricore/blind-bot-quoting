@@ -82,6 +82,10 @@ export interface ItemConfig {
   options: Record<string, string>;
   /** dimension answers keyed by dimension field key, in cm */
   dimensions: Record<string, number>;
+  /** per-line window/room label (which window this line is for) */
+  location?: string;
+  /** free-text special instructions for the workroom */
+  note?: string;
 }
 
 /** Config stored on an accessory (e.g. A-OK motor) quote line — no dimensions/options. */
