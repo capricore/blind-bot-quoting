@@ -4,7 +4,7 @@ import type { AccessoryCategory, AccessoryModel } from "@/lib/accessories-data";
 import type { AccessoryBrand } from "./accessory-catalog";
 
 // THE-772 Phase 2b — admin CRUD for the accessory catalog (brand → category → model).
-// Image UPLOAD is deferred; image_url is editable as a plain field for now.
+// image_url is set either by direct URL or via upload (POST /api/motors/catalog/image).
 
 const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
