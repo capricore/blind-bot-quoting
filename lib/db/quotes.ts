@@ -1,11 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  ACCESSORY_BRAND,
-  ACCESSORY_PRICING_VERSION,
-  getAccessoryCategory,
-  type AccessoryModel,
-} from "@/lib/accessories-data";
+import { ACCESSORY_PRICING_VERSION, type AccessoryModel } from "@/lib/accessories-data";
 import { admin } from "@/lib/supabase/admin";
+import { loadCatalog } from "./accessory-catalog";
 import type {
   AccessoryConfig,
   CrownDriverConfig,
@@ -173,12 +169,14 @@ export async function addAccessoryItem(
   unitPrice?: number,
   crownDriver?: CrownDriverConfig
 ): Promise<QuoteItemRow> {
-  const category = getAccessoryCategory(model.categoryId);
+  const cat = await loadCatalog();
+  const brandName = cat.brand.name;
+  const category = cat.category(model.categoryId);
   const config: AccessoryConfig = {
     kind: "accessory",
     sku: model.sku,
     name: model.name,
-    brand: ACCESSORY_BRAND.name,
+    brand: brandName,
     category: category?.name ?? model.categoryId,
     ...(crownDriver ? { crownDriver } : {}),
   };
@@ -201,7 +199,7 @@ export async function addAccessoryItem(
     currency: "USD",
     lines,
     facts: [
-      { label: "Brand", value: ACCESSORY_BRAND.name },
+      { label: "Brand", value: brandName },
       { label: "Model #", value: model.sku },
       ...(crownDriver?.mode === "crown-driver"
         ? [{ label: "Crown / Driver", value: `${crownDriver.crownLabel} · ${crownDriver.driverLabel}` }]

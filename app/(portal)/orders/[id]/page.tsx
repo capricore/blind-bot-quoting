@@ -3,8 +3,7 @@ import { notFound } from "next/navigation";
 import { Swatch } from "@/components/renders";
 import { Badge, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
 import { canAccessOwned, requireUserId, userClient } from "@/lib/auth/user";
-import { getLine, getOrder, getOrderOwnerId, getProduct } from "@/lib/db";
-import { accessoryImage, getAccessoryModel } from "@/lib/accessories-data";
+import { getLine, getOrder, getOrderOwnerId, getProduct, loadCatalog } from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 import { isAccessoryConfig } from "@/lib/types";
 import { ACTOR_LABEL, fmtDate, fmtDateTime, ORDER_STATUS_META, usd } from "@/lib/format";
@@ -18,6 +17,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
   if (!(await canAccessOwned(userId, await getOrderOwnerId(Number(id))))) notFound();
 
+  const catalog = await loadCatalog(); // for accessory line images / names
   const stageIdx = ORDER_STATUSES.indexOf(order.status);
 
   return (
@@ -85,12 +85,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               {order.quote.items.map((item) => {
                 if (isAccessoryConfig(item.config)) {
                   const cfg = item.config;
-                  const acc = getAccessoryModel(item.productId);
+                  const acc = catalog.model(item.productId);
                   return (
                     <li key={item.id} className="flex items-center gap-4 px-5 py-3.5">
                       {acc && (
                         /* eslint-disable-next-line @next/next/no-img-element */
-                        <img src={accessoryImage(acc)} alt={cfg.name} className="size-11 shrink-0 rounded-lg bg-[#0e0e10] object-contain p-1" />
+                        <img src={catalog.image(acc)} alt={cfg.name} className="size-11 shrink-0 rounded-lg bg-[#0e0e10] object-contain p-1" />
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="text-[13.5px] font-semibold text-ink">

@@ -6,8 +6,7 @@ import { LineQtyEditor } from "@/components/LineQtyEditor";
 import { Swatch } from "@/components/renders";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { canAccessOwned, requireUserId, userClient } from "@/lib/auth/user";
-import { getLine, getOrderRefByQuote, getProduct, getQuote, getQuoteOwnerId } from "@/lib/db";
-import { accessoryImage, getAccessoryModel } from "@/lib/accessories-data";
+import { getLine, getOrderRefByQuote, getProduct, getQuote, getQuoteOwnerId, loadCatalog } from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 import { fmtDate, usd } from "@/lib/format";
 import { isAccessoryConfig } from "@/lib/types";
@@ -40,6 +39,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
 
   const order =
     quote.status === "converted" ? await getOrderRefByQuote(quote.id, sb) : undefined;
+  const catalog = await loadCatalog(); // for accessory line images / names
 
   const details = {
     quoteType: quote.quoteType,
@@ -133,13 +133,13 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
               // Accessory line (A-OK motor): fixed price, no color/dimensions.
               if (isAccessoryConfig(item.config)) {
                 const cfg = item.config;
-                const acc = getAccessoryModel(item.productId);
+                const acc = catalog.model(item.productId);
                 return (
                   <Card key={item.id} className="px-5 py-4">
                     <div className="flex gap-4">
                       {acc && (
                         /* eslint-disable-next-line @next/next/no-img-element */
-                        <img src={accessoryImage(acc)} alt={cfg.name} className="size-[72px] shrink-0 rounded-2xl bg-[#0e0e10] object-contain p-1.5" />
+                        <img src={catalog.image(acc)} alt={cfg.name} className="size-[72px] shrink-0 rounded-2xl bg-[#0e0e10] object-contain p-1.5" />
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-3">

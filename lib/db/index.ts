@@ -19,3 +19,4 @@ export * from "./quotes";
 export * from "./orders";
 export * from "./tags";
 export * from "./motors";
+export * from "./accessory-catalog";
