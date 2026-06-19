@@ -5,6 +5,7 @@ import { ModelTagEditor, type TaggableModel } from "@/components/ModelTagEditor"
 import { MotorInventoryEditor, type InventoryRow } from "@/components/MotorInventoryEditor";
 import { MotorPriceEditor, type PriceRow, type Target } from "@/components/MotorPriceEditor";
 import { CrownDriverEditor } from "@/components/CrownDriverEditor";
+import { CatalogAdmin } from "@/components/CatalogAdmin";
 import { requireAdminPage } from "@/lib/auth/user";
 import {
   getAttributes,
@@ -16,10 +17,12 @@ import {
   getRetailerOverrideMap,
   listRetailers,
   loadCatalog,
+  loadCatalogAdmin,
 } from "@/lib/db";
 
-type Tab = "inventory" | "pricing" | "tags" | "crown-driver";
+type Tab = "catalog" | "inventory" | "pricing" | "tags" | "crown-driver";
 const TABS: { id: Tab; label: string }[] = [
+  { id: "catalog", label: "Catalog" },
   { id: "inventory", label: "Inventory" },
   { id: "pricing", label: "Pricing" },
   { id: "tags", label: "Tags" },
@@ -41,7 +44,7 @@ export default async function MotorsPage({
 }) {
   await requireAdminPage("/motors");
   const { tab: tabParam, retailer } = await searchParams;
-  const tab: Tab = (TABS.find((t) => t.id === tabParam)?.id ?? "inventory") as Tab;
+  const tab: Tab = (TABS.find((t) => t.id === tabParam)?.id ?? "catalog") as Tab;
 
   return (
     <div>
@@ -66,12 +69,18 @@ export default async function MotorsPage({
         ))}
       </div>
 
+      {tab === "catalog" && <CatalogTab />}
       {tab === "inventory" && <InventoryTab />}
       {tab === "pricing" && <PricingTab retailerParam={retailer} />}
       {tab === "tags" && <TagsTab />}
       {tab === "crown-driver" && <CrownDriverTab />}
     </div>
   );
+}
+
+async function CatalogTab() {
+  const catalog = await loadCatalogAdmin();
+  return <CatalogAdmin catalog={catalog} />;
 }
 
 async function InventoryTab() {
