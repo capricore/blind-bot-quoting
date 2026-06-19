@@ -2,12 +2,6 @@ import Link from "next/link";
 import { AddAccessoryButton } from "@/components/AccessoryActions";
 import { AccessoryFilters } from "@/components/AccessoryFilters";
 import { Badge, Card, cx, PageHeader } from "@/components/ui";
-import {
-  ACCESSORY_BRAND,
-  accessoryImage,
-  getAccessoryCategories,
-  getAccessoryModels,
-} from "@/lib/accessories-data";
 import { getCurrentUserId } from "@/lib/auth/user";
 import {
   getAttributes,
@@ -16,6 +10,7 @@ import {
   getEffectivePrices,
   getInventoryMap,
   getModelTagMap,
+  loadCatalog,
 } from "@/lib/db";
 import { usd } from "@/lib/format";
 
@@ -30,11 +25,9 @@ export default async function AccessoriesPage({
     typeof sp.quote === "string" && Number.isInteger(Number(sp.quote)) ? Number(sp.quote) : undefined;
   const q = quoteId ? `&quote=${quoteId}` : "";
 
-  const categories = getAccessoryCategories();
-  const activeCat = categories.find((c) => c.id === cat) ?? categories[0];
-
   const userId = await getCurrentUserId();
-  const [attributes, tagMap, effectivePrices, inventory, crownOptions, driverOptions] = await Promise.all([
+  const [catalog, attributes, tagMap, effectivePrices, inventory, crownOptions, driverOptions] = await Promise.all([
+    loadCatalog(),
     getAttributes(),
     getModelTagMap(),
     getEffectivePrices(userId), // this retailer's price per motor (override → default → static)
@@ -42,6 +35,8 @@ export default async function AccessoriesPage({
     getCrownOptions(),
     getDriverOptions(),
   ]);
+  const categories = catalog.categories;
+  const activeCat = categories.find((c) => c.id === cat) ?? categories[0];
 
   // value id → label, for chips
   const valueLabel: Record<string, string> = {};
@@ -57,8 +52,8 @@ export default async function AccessoriesPage({
 
   // When filtering, search ALL orderable motors across categories; otherwise browse the active category.
   const baseModels = filtering
-    ? categories.filter((c) => c.orderable).flatMap((c) => getAccessoryModels(c.id).map((m) => ({ model: m, cat: c })))
-    : getAccessoryModels(activeCat.id).map((m) => ({ model: m, cat: activeCat }));
+    ? categories.filter((c) => c.orderable).flatMap((c) => catalog.modelsIn(c.id).map((m) => ({ model: m, cat: c })))
+    : catalog.modelsIn(activeCat.id).map((m) => ({ model: m, cat: activeCat }));
 
   const models = filtering
     ? baseModels.filter(({ model }) => {
@@ -95,8 +90,8 @@ export default async function AccessoriesPage({
             <div className="flex items-center gap-3 bg-[#1a2336] px-4 py-3 text-white">
               <div className="flex size-8 items-center justify-center rounded-lg bg-white/10 text-sm font-bold">A</div>
               <div>
-                <div className="text-sm font-semibold">{ACCESSORY_BRAND.name}</div>
-                <div className="text-[10.5px] text-white/50">{ACCESSORY_BRAND.tagline}</div>
+                <div className="text-sm font-semibold">{catalog.brand.name}</div>
+                <div className="text-[10.5px] text-white/50">{catalog.brand.tagline}</div>
               </div>
             </div>
           </Card>
@@ -108,7 +103,7 @@ export default async function AccessoriesPage({
           <Card className="overflow-hidden">
             <ul className="divide-y divide-line/70">
               {categories.map((c) => {
-                const count = getAccessoryModels(c.id).length;
+                const count = catalog.modelsIn(c.id).length;
                 const active = !filtering && c.id === activeCat.id;
                 return (
                   <li key={c.id}>
@@ -138,7 +133,7 @@ export default async function AccessoriesPage({
         <div>
           <div className="mb-2 flex items-center gap-2 px-1">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-              {filtering ? `Filtered · ${models.length} motor${models.length === 1 ? "" : "s"}` : `${ACCESSORY_BRAND.name} · ${activeCat.name}`}
+              {filtering ? `Filtered · ${models.length} motor${models.length === 1 ? "" : "s"}` : `${catalog.brand.name} · ${activeCat.name}`}
             </span>
             {!filtering && !activeCat.orderable && (
               <span className="text-[10.5px] text-muted">— reference only (not yet orderable)</span>
@@ -157,7 +152,7 @@ export default async function AccessoriesPage({
                     <li key={model.id} className="flex items-center gap-4 px-4 py-3.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={accessoryImage(model)}
+                        src={catalog.image(model)}
                         alt={model.name}
                         className="size-14 shrink-0 rounded-xl bg-[#0e0e10] object-contain p-1.5"
                       />

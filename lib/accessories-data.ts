@@ -126,23 +126,6 @@ export const ACCESSORY_MODELS: AccessoryModel[] = [
 
 export const ACCESSORY_PRICING_VERSION = "aok-2025";
 
-export function getAccessoryCategories(): AccessoryCategory[] {
-  return ACCESSORY_CATEGORIES;
-}
-
-export function getAccessoryCategory(id: string): AccessoryCategory | undefined {
-  return ACCESSORY_CATEGORIES.find((c) => c.id === id);
-}
-
-export function getAccessoryModels(categoryId?: string): AccessoryModel[] {
-  return categoryId ? ACCESSORY_MODELS.filter((m) => m.categoryId === categoryId) : ACCESSORY_MODELS;
-}
-
-export function getAccessoryModel(id: string): AccessoryModel | undefined {
-  return ACCESSORY_MODELS.find((m) => m.id === id);
-}
-
-/** The category image stands in as a model's thumbnail until per-model photos land. */
-export function accessoryImage(model: AccessoryModel): string {
-  return model.imageUrl ?? getAccessoryCategory(model.categoryId)?.image ?? "";
-}
+// NOTE: the live accessors moved to lib/db/accessory-catalog.ts (`loadCatalog()`), which
+// reads the DB (0006) and falls back to the static data above. Everything goes through
+// that snapshot now so admin edits take effect.

@@ -9,12 +9,12 @@ import {
   getProduct,
   getQuote,
   getStock,
+  loadCatalog,
   removeQuoteItem,
   resolveCrownDriver,
   resolveMotorPrice,
   updateQuoteItem,
 } from "@/lib/db";
-import { getAccessoryCategory, getAccessoryModel } from "@/lib/accessories-data";
 import { computeQuote, PricingError } from "@/lib/pricing";
 import type { CrownDriverConfig, ItemConfig, QuoteRow } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -58,11 +58,12 @@ export async function POST(req: Request) {
     const qty = Math.max(1, Math.min(500, Math.round(body.qty || 1)));
     const quoteId = typeof body.quoteId === "number" && Number.isInteger(body.quoteId) ? body.quoteId : undefined;
     const sb = await userClient();
+    const catalog = await loadCatalog();
 
     // Accessory (e.g. A-OK motor): fixed price, no configuration. Only orderable categories.
-    const accessory = getAccessoryModel(body.productId);
+    const accessory = catalog.model(body.productId);
     if (accessory) {
-      const category = getAccessoryCategory(accessory.categoryId);
+      const category = catalog.category(accessory.categoryId);
       if (!category?.orderable) {
         return NextResponse.json({ error: "This accessory isn't available to order" }, { status: 422 });
       }

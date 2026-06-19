@@ -15,8 +15,8 @@ import {
   getModelTagMap,
   getRetailerOverrideMap,
   listRetailers,
+  loadCatalog,
 } from "@/lib/db";
-import { getAccessoryCategories, getAccessoryModels } from "@/lib/accessories-data";
 
 type Tab = "inventory" | "pricing" | "tags" | "crown-driver";
 const TABS: { id: Tab; label: string }[] = [
@@ -27,10 +27,11 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 /** Orderable motor models with category, the surface all motor admin shares. */
-function motors() {
-  return getAccessoryCategories()
+async function motors() {
+  const cat = await loadCatalog();
+  return cat.categories
     .filter((c) => c.orderable)
-    .flatMap((c) => getAccessoryModels(c.id).map((m) => ({ id: m.id, name: m.name, sku: m.sku, category: c.name })));
+    .flatMap((c) => cat.modelsIn(c.id).map((m) => ({ id: m.id, name: m.name, sku: m.sku, category: c.name })));
 }
 
 export default async function MotorsPage({
@@ -75,7 +76,7 @@ export default async function MotorsPage({
 
 async function InventoryTab() {
   const inv = await getInventoryMap();
-  const rows: InventoryRow[] = motors().map((m) => ({
+  const rows: InventoryRow[] = (await motors()).map((m) => ({
     modelId: m.id,
     name: m.name,
     sku: m.sku,
@@ -87,7 +88,7 @@ async function InventoryTab() {
 
 async function TagsTab() {
   const [attributes, tagMap] = await Promise.all([getAttributes(), getModelTagMap()]);
-  const models: TaggableModel[] = motors().map((m) => ({ id: m.id, name: m.name, sku: m.sku, categoryName: m.category }));
+  const models: TaggableModel[] = (await motors()).map((m) => ({ id: m.id, name: m.name, sku: m.sku, categoryName: m.category }));
   return (
     <div className="space-y-8">
       <section>
@@ -157,7 +158,7 @@ async function PricingTab({ retailerParam }: { retailerParam?: string }) {
     overrideMap = await getRetailerOverrideMap(r.id);
   }
 
-  const rows: PriceRow[] = motors().map((m) => {
+  const rows: PriceRow[] = (await motors()).map((m) => {
     const defaultPrice = defaultEffective[m.id] ?? 0;
     return {
       modelId: m.id,

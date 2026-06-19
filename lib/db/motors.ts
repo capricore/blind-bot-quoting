@@ -1,10 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { admin } from "@/lib/supabase/admin";
-import {
-  getAccessoryCategories,
-  getAccessoryModel,
-  getAccessoryModels,
-} from "@/lib/accessories-data";
+import { loadCatalog } from "./accessory-catalog";
 import type { MotorOption } from "@/lib/types";
 
 // Motor inventory + per-retailer pricing (admin-managed; see 0004_motor_inventory_pricing.sql).
@@ -12,10 +8,9 @@ import type { MotorOption } from "@/lib/types";
 // to "untracked / static catalog price", so the catalog never 500s on a missing migration.
 
 /** All orderable motor model ids (the surface these features apply to). */
-export function orderableMotorIds(): string[] {
-  return getAccessoryCategories()
-    .filter((c) => c.orderable)
-    .flatMap((c) => getAccessoryModels(c.id).map((m) => m.id));
+export async function orderableMotorIds(): Promise<string[]> {
+  const cat = await loadCatalog();
+  return cat.categories.filter((c) => c.orderable).flatMap((c) => cat.modelsIn(c.id).map((m) => m.id));
 }
 
 // ---------------- inventory ----------------
@@ -97,16 +92,15 @@ export async function deductMotorStock(
           .eq("model_id", d.modelId);
       }
     }
+    const cat = await loadCatalog();
     const names = short
-      .map((s) => `${getAccessoryModel(s.modelId)?.name ?? s.modelId} (only ${s.left} left, need ${s.need})`)
+      .map((s) => `${cat.model(s.modelId)?.name ?? s.modelId} (only ${s.left} left, need ${s.need})`)
       .join("; ");
     throw new Error(`Insufficient motor stock: ${names}`);
   }
 }
 
 // ---------------- per-retailer pricing ----------------
-
-const staticPrice = (modelId: string) => getAccessoryModel(modelId)?.price ?? 0;
 
 /** model_id → default price (rows with retailer_id NULL). */
 export async function getDefaultPriceMap(sb: SupabaseClient = admin()): Promise<Record<string, number>> {
@@ -134,10 +128,13 @@ export async function getEffectivePrices(
   retailerId: string | null,
   sb: SupabaseClient = admin()
 ): Promise<Record<string, number>> {
+  const cat = await loadCatalog();
   const def = await getDefaultPriceMap(sb);
   const override = retailerId ? await getRetailerOverrideMap(retailerId, sb) : {};
   const out: Record<string, number> = {};
-  for (const id of orderableMotorIds()) out[id] = override[id] ?? def[id] ?? staticPrice(id);
+  for (const c of cat.categories.filter((x) => x.orderable)) {
+    for (const m of cat.modelsIn(c.id)) out[m.id] = override[m.id] ?? def[m.id] ?? m.price ?? 0;
+  }
   return out;
 }
 
@@ -163,7 +160,8 @@ export async function resolveMotorPrice(
     .is("retailer_id", null)
     .maybeSingle();
   if (def) return Number((def as { price: number }).price);
-  return staticPrice(modelId);
+  const cat = await loadCatalog();
+  return cat.model(modelId)?.price ?? 0;
 }
 
 // Manual update-or-insert (partial unique indexes can't be PostgREST upsert targets).

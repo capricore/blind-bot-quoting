@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/api";
-import { setModelTags } from "@/lib/db";
-import { getAccessoryModel } from "@/lib/accessories-data";
+import { loadCatalog, setModelTags } from "@/lib/db";
 
 /** Replace a model's full tag set. Body: { modelId: string, valueIds: string[] }. Admin only. */
 export async function PUT(req: Request) {
@@ -9,7 +8,8 @@ export async function PUT(req: Request) {
   if (sb instanceof NextResponse) return sb;
   try {
     const { modelId, valueIds } = await req.json();
-    if (typeof modelId !== "string" || !getAccessoryModel(modelId)) {
+    const cat = await loadCatalog();
+    if (typeof modelId !== "string" || !cat.model(modelId)) {
       return NextResponse.json({ error: "Unknown model" }, { status: 400 });
     }
     if (!Array.isArray(valueIds) || valueIds.some((v) => typeof v !== "string")) {
