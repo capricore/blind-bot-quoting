@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { admin } from "@/lib/supabase/admin";
 import { getCurrentUserId, isAdmin, userClient } from "@/lib/auth/user";
 import {
+  getConversationById,
   getConversationForRetailer,
   getMessages,
   getOrCreateConversationForRetailer,
@@ -17,13 +18,20 @@ export async function GET(req: Request) {
   if (await isAdmin(uid)) {
     const conversationId = new URL(req.url).searchParams.get("conversationId");
     if (!conversationId) return NextResponse.json({ error: "conversationId required" }, { status: 400 });
-    return NextResponse.json({ conversationId, messages: await getMessages(conversationId, admin()) });
+    const conv = await getConversationById(conversationId, admin());
+    return NextResponse.json({
+      conversationId,
+      messages: await getMessages(conversationId, admin()),
+      // The other party's last-read time — drives the sender's "Sent → Read" status.
+      peerLastReadAt: conv?.retailerLastReadAt ?? null,
+    });
   }
   const sb = await userClient();
   const conv = await getConversationForRetailer(uid, sb);
   return NextResponse.json({
     conversationId: conv?.id ?? null,
     messages: conv ? await getMessages(conv.id, sb) : [],
+    peerLastReadAt: conv?.adminLastReadAt ?? null,
   });
 }
 

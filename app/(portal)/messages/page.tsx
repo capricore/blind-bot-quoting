@@ -35,7 +35,12 @@ export default async function MessagesPage() {
         title="Messages"
         description="Chat with our team about products, pricing, and orders — we'll reply here."
       />
-      <ChatThread role="retailer" conversationId={conv?.id ?? null} initialMessages={messages} />
+      <ChatThread
+        role="retailer"
+        conversationId={conv?.id ?? null}
+        initialMessages={messages}
+        initialPeerReadAt={conv?.adminLastReadAt ?? null}
+      />
     </>
   );
 }
