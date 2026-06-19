@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatRole } from "@/lib/db";
 import { Button, cx } from "./ui";
 
+type UiMessage = ChatMessage & { pending?: boolean };
+
 function fmtTime(iso: string): string {
   const d = new Date(iso);
   const today = new Date();
@@ -13,33 +15,41 @@ function fmtTime(iso: string): string {
 }
 
 /**
- * Shared chat thread (retailer + admin). Polls for new messages every 5s, sends, and marks
- * the conversation read when the latest message is from the other party. For the retailer the
- * conversation is created lazily on first send (conversationId starts null).
+ * Shared chat thread (retailer + admin). Polls for new messages every 5s, sends optimistically
+ * ("Sending…" → "Sent" → "Read"), and marks the conversation read when the latest message is
+ * from the other party. For the retailer the conversation is created lazily on first send.
  */
 export function ChatThread({
   role,
   conversationId: initialConvId,
   initialMessages,
+  initialPeerReadAt = null,
   header,
   onActivity,
 }: {
   role: ChatRole;
   conversationId: string | null;
   initialMessages: ChatMessage[];
+  initialPeerReadAt?: string | null;
   header?: React.ReactNode;
   onActivity?: () => void;
 }) {
   const [convId, setConvId] = useState(initialConvId);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [pending, setPending] = useState<UiMessage[]>([]);
+  const [peerReadAt, setPeerReadAt] = useState<string | null>(initialPeerReadAt);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastReadId = useRef<string | null>(null);
   const bottomPinned = useRef(true);
+  const tmpSeq = useRef(0);
 
   const getUrl = role === "admin" && convId ? `/api/messages?conversationId=${convId}` : "/api/messages";
+
+  const all: UiMessage[] = [...messages, ...pending];
+  const lastMineId = [...all].reverse().find((m) => m.senderRole === role)?.id ?? null;
 
   const markRead = useCallback(async () => {
     const latest = messages[messages.length - 1];
@@ -53,8 +63,7 @@ export function ChatThread({
     onActivity?.();
   }, [messages, role, convId, onActivity]);
 
-  // Poll while mounted; also refresh on tab focus. (Inlined so the effect doesn't call a
-  // state-setting callback synchronously — state only updates inside the async fetch.)
+  // Poll while mounted; also refresh on tab focus.
   useEffect(() => {
     if (role === "admin" && !convId) return;
     let alive = true;
@@ -65,6 +74,7 @@ export function ChatThread({
         const data = await r.json();
         if (!alive) return;
         if (Array.isArray(data.messages)) setMessages(data.messages);
+        if ("peerLastReadAt" in data) setPeerReadAt(data.peerLastReadAt ?? null);
         if (data.conversationId && !convId) setConvId(data.conversationId);
       } catch {
         /* transient — next tick retries */
@@ -81,16 +91,15 @@ export function ChatThread({
     };
   }, [getUrl, role, convId]);
 
-  // Mark read whenever the newest message changes to one from the other party.
   useEffect(() => {
     markRead();
   }, [markRead]);
 
-  // Keep the view pinned to the newest message unless the user scrolled up.
+  // Keep pinned to newest unless the user scrolled up.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && bottomPinned.current) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, pending]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -101,9 +110,16 @@ export function ChatThread({
   const send = async () => {
     const body = text.trim();
     if (!body || busy) return;
+    const tmpId = `tmp-${tmpSeq.current++}`;
     setBusy(true);
     setErr(null);
+    setText("");
     bottomPinned.current = true;
+    // Optimistic bubble.
+    setPending((p) => [
+      ...p,
+      { id: tmpId, conversationId: convId ?? "", senderId: "", senderRole: role, body, createdAt: new Date().toISOString(), pending: true },
+    ]);
     try {
       const r = await fetch("/api/messages", {
         method: "POST",
@@ -112,11 +128,13 @@ export function ChatThread({
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? "Failed to send");
-      setText("");
       if (data.conversationId && !convId) setConvId(data.conversationId);
       if (data.message) setMessages((m) => [...m, data.message as ChatMessage]);
+      setPending((p) => p.filter((x) => x.id !== tmpId));
       onActivity?.();
     } catch (e) {
+      setPending((p) => p.filter((x) => x.id !== tmpId));
+      setText(body); // restore so the user can retry
       setErr((e as Error).message);
     } finally {
       setBusy(false);
@@ -136,23 +154,36 @@ export function ChatThread({
       {header && <div className="shrink-0 border-b border-line px-4 py-3">{header}</div>}
 
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {messages.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-center text-sm text-muted">
-            {role === "retailer"
-              ? "Send a message to start the conversation — ask us anything about products, pricing, or orders."
-              : "No messages yet."}
+        {all.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <div className="flex size-11 items-center justify-center rounded-2xl bg-brass-soft text-xl">💬</div>
+            <p className="text-sm font-medium text-ink">
+              {role === "retailer" ? "Start a conversation" : "No messages yet"}
+            </p>
+            <p className="max-w-xs text-[13px] leading-relaxed text-muted">
+              {role === "retailer"
+                ? "Ask us anything about products, pricing, lead times, or your orders — we'll reply right here."
+                : "Replies you send will appear here."}
+            </p>
           </div>
         ) : (
-          messages.map((m) => {
+          all.map((m) => {
             const mine = m.senderRole === role;
+            const status = m.pending
+              ? "Sending…"
+              : mine && m.id === lastMineId
+                ? peerReadAt && new Date(peerReadAt) >= new Date(m.createdAt)
+                  ? "Read"
+                  : "Sent"
+                : null;
             return (
               <div key={m.id} className={cx("flex", mine ? "justify-end" : "justify-start")}>
-                <div className={cx("max-w-[78%] sm:max-w-[70%]")}>
+                <div className="max-w-[82%] sm:max-w-[70%]">
                   <div
                     className={cx(
                       "whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
                       mine
-                        ? "rounded-br-md bg-ink text-white"
+                        ? cx("rounded-br-md bg-ink text-white", m.pending && "opacity-70")
                         : "rounded-bl-md border border-line bg-[#faf9f5] text-ink"
                     )}
                   >
@@ -160,6 +191,9 @@ export function ChatThread({
                   </div>
                   <div className={cx("mt-1 px-1 text-[10.5px] text-muted", mine ? "text-right" : "text-left")}>
                     {fmtTime(m.createdAt)}
+                    {status && (
+                      <span className={cx(status === "Read" && "text-brass")}> · {status}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -181,13 +215,16 @@ export function ChatThread({
               }
             }}
             rows={1}
-            placeholder="Type a message…  (Enter to send, Shift+Enter for a new line)"
-            className="max-h-32 min-h-[40px] flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-ink"
+            placeholder="Type a message…"
+            className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm text-ink outline-none focus:border-ink"
           />
-          <Button variant="primary" busy={busy} disabled={!text.trim()} className="px-4 py-2" onClick={send}>
+          <Button variant="primary" busy={busy} disabled={!text.trim()} className="h-[44px] px-5" onClick={send}>
             Send
           </Button>
         </div>
+        <p className="mt-1.5 hidden px-1 text-[11px] text-muted sm:block">
+          Press <span className="font-medium">Enter</span> to send · <span className="font-medium">Shift+Enter</span> for a new line
+        </p>
       </div>
     </div>
   );
