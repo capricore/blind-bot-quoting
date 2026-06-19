@@ -19,7 +19,16 @@ async function call(method: string, body: unknown): Promise<{ how?: "soft" | "ha
 
 const INPUT = "rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink outline-none focus:border-ink";
 
-/** Admin catalog tree: brands → categories → models, all editable. (Image is a URL field for now.) */
+async function uploadImage(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/api/motors/catalog/image", { method: "POST", body: fd });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error ?? "Upload failed");
+  return data.url as string;
+}
+
+/** Admin catalog tree: brands → categories → models, all editable (incl. image upload). */
 export function CatalogAdmin({ catalog }: { catalog: AdminCatalog }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -213,7 +222,32 @@ function ModelRow({ model }: { model: AdminModel }) {
       {details && (
         <div className="mt-2 space-y-2">
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Description" className={cx(INPUT, "w-full resize-none")} />
-          <input value={image} onChange={(e) => setImage(e.target.value)} placeholder="Image URL (upload coming later)" className={cx(INPUT, "w-full")} />
+          <div className="flex items-center gap-2">
+            {image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-line object-cover" />
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-line text-[10px] text-muted">no img</div>
+            )}
+            <input value={image} onChange={(e) => setImage(e.target.value)} placeholder="Image URL" className={cx(INPUT, "flex-1")} />
+            <label className={cx("cursor-pointer rounded-lg border border-line px-2.5 py-1.5 text-[12px] font-medium text-ink-soft hover:border-ink", busy && "pointer-events-none opacity-50")}>
+              {busy ? "Uploading…" : "Upload"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) run(async () => setImage(await uploadImage(file)));
+                }}
+              />
+            </label>
+            {image && (
+              <button onClick={() => setImage("")} disabled={busy} className="text-[11px] font-medium text-muted hover:text-red-500">Clear</button>
+            )}
+          </div>
+          <p className="text-[10.5px] text-muted">Upload sets the URL above; click <span className="font-medium">Save</span> to persist. PNG/JPEG/WebP ≤ 5 MB.</p>
         </div>
       )}
       {err && <p className="mt-1 text-[11px] text-red-500">{err}</p>}
