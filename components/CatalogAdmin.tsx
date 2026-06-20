@@ -197,6 +197,7 @@ function ModelRow({ model }: { model: AdminModel }) {
   const [image, setImage] = useState(model.imageUrl ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [confirmRefs, setConfirmRefs] = useState<QuoteRef[] | null>(null);
 
   const dirty =
@@ -205,12 +206,14 @@ function ModelRow({ model }: { model: AdminModel }) {
     description !== (model.description ?? "") || image !== (model.imageUrl ?? "");
 
   const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true); setErr(null); setConfirmRefs(null);
+    setBusy(true); setErr(null);
     try { await fn(); router.refresh(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
 
-  // First click: delete (the API reports back if it's used in quotes). If referenced, show the
-  // list and wait for "Delete anyway", which re-runs with force.
+  const cancelDelete = () => { setConfirming(false); setConfirmRefs(null); };
+
+  // Confirm step → delete. The API reports back if it's used in quotes; if so we show the list
+  // and wait for "Delete anyway", which re-runs with force. Quote lines keep their snapshot.
   const onDelete = (force: boolean) =>
     run(async () => {
       const r = await call("DELETE", { entity: "model", id: model.id, force });
@@ -218,14 +221,17 @@ function ModelRow({ model }: { model: AdminModel }) {
     });
 
   return (
-    <li className={cx("rounded-lg border border-line bg-surface px-2.5 py-2", !active && "opacity-60")}>
+    <li className={cx("rounded-lg border bg-surface px-2.5 py-2", active ? "border-line" : "border-dashed border-line")}>
       <div className="flex flex-wrap items-center gap-2">
-        <input value={name} onChange={(e) => setName(e.target.value)} className={cx(INPUT, "min-w-[160px] flex-1 font-medium")} />
+        <input value={name} onChange={(e) => setName(e.target.value)} className={cx(INPUT, "min-w-[160px] flex-1 font-medium", !active && "text-muted")} />
         <input value={sku} onChange={(e) => setSku(e.target.value)} className={cx(INPUT, "w-36 font-mono text-[12px]")} />
         <div className="flex items-center rounded-lg border border-line px-2">
           <span className="text-xs text-muted">$</span>
           <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="—" className="w-16 bg-transparent px-1 py-1.5 text-sm text-ink outline-none" />
         </div>
+        {!active && (
+          <span className="rounded-full bg-[#efece4] px-1.5 py-0.5 text-[10px] font-medium text-muted">Inactive</span>
+        )}
         <label className="flex items-center gap-1 text-[11px] text-ink-soft">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> active
         </label>
@@ -234,7 +240,7 @@ function ModelRow({ model }: { model: AdminModel }) {
           Save
         </Button>
         <button
-          onClick={() => onDelete(false)}
+          onClick={() => { setErr(null); setConfirmRefs(null); setConfirming(true); }}
           disabled={busy}
           className="text-[11px] font-medium text-muted hover:text-red-500"
         >
@@ -272,18 +278,29 @@ function ModelRow({ model }: { model: AdminModel }) {
           <p className="text-[10.5px] text-muted">Upload sets the URL above; click <span className="font-medium">Save</span> to persist. PNG/JPEG/WebP ≤ 5 MB.</p>
         </div>
       )}
-      {confirmRefs && (
-        <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
-          <p>
-            In use on {confirmRefs.length} quote{confirmRefs.length === 1 ? "" : "s"}:{" "}
-            <span className="font-medium">{confirmRefs.map((q) => q.ref || `#${q.quoteId}`).join(", ")}</span>.
-            Those quotes keep their saved snapshot (name, price, image), so deleting will not change them.
-          </p>
+      {confirming && (
+        <div
+          className={cx(
+            "mt-2 rounded-lg border px-3 py-2 text-[11.5px]",
+            confirmRefs ? "border-amber-300 bg-amber-50 text-amber-800" : "border-line bg-[#faf9f5] text-ink-soft"
+          )}
+        >
+          {confirmRefs ? (
+            <p>
+              In use on {confirmRefs.length} quote{confirmRefs.length === 1 ? "" : "s"}:{" "}
+              <span className="font-medium">{confirmRefs.map((q) => q.ref || `#${q.quoteId}`).join(", ")}</span>.
+              Those quotes keep their saved snapshot (name, price, image), so deleting will not change them.
+            </p>
+          ) : (
+            <p>
+              Delete <span className="font-medium">{model.name}</span> from the catalog? This cannot be undone.
+            </p>
+          )}
           <div className="mt-1.5 flex items-center gap-3">
-            <button onClick={() => onDelete(true)} disabled={busy} className="font-semibold text-red-600 hover:underline">
-              Delete anyway
+            <button onClick={() => onDelete(!!confirmRefs)} disabled={busy} className="font-semibold text-red-600 hover:underline">
+              {confirmRefs ? "Delete anyway" : "Delete"}
             </button>
-            <button onClick={() => setConfirmRefs(null)} disabled={busy} className="text-amber-700 hover:underline">
+            <button onClick={cancelDelete} disabled={busy} className="text-muted hover:underline">
               Cancel
             </button>
           </div>
