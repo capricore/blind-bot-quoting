@@ -192,6 +192,7 @@ export async function deleteModel(
   await sb.from("accessory_inventory").delete().eq("model_id", id);
   await sb.from("accessory_prices").delete().eq("model_id", id);
   await sb.from("accessory_model_tags").delete().eq("model_id", id);
+  await sb.from("variation_product_items").delete().eq("model_id", id);
   const { error } = await sb.from("accessory_models").delete().eq("id", id);
   if (error) throw error;
   return { status: "deleted" };

@@ -5,11 +5,11 @@ import { Badge, Card, cx, PageHeader } from "@/components/ui";
 import { getCurrentUserId } from "@/lib/auth/user";
 import {
   getAttributes,
-  getCrownOptions,
-  getDriverOptions,
   getEffectivePrices,
   getInventoryMap,
   getModelTagMap,
+  getProductVariationMap,
+  getVariations,
   loadCatalog,
 } from "@/lib/db";
 import { usd } from "@/lib/format";
@@ -26,14 +26,14 @@ export default async function AccessoriesPage({
   const q = quoteId ? `&quote=${quoteId}` : "";
 
   const userId = await getCurrentUserId();
-  const [catalog, attributes, tagMap, effectivePrices, inventory, crownOptions, driverOptions] = await Promise.all([
+  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap] = await Promise.all([
     loadCatalog(),
     getAttributes(),
     getModelTagMap(),
     getEffectivePrices(userId), // this retailer's price per motor (override → default → static)
     getInventoryMap(), // model_id → stock; absent = untracked
-    getCrownOptions(),
-    getDriverOptions(),
+    getVariations(),
+    getProductVariationMap(), // model_id → available variation item ids
   ]);
   const categories = catalog.categories;
   const activeCat = categories.find((c) => c.id === cat) ?? categories[0];
@@ -190,8 +190,8 @@ export default async function AccessoriesPage({
                               modelId={model.id}
                               quoteId={quoteId}
                               stock={stock}
-                              crownOptions={crownOptions}
-                              driverOptions={driverOptions}
+                              variations={variations}
+                              availableItemIds={variationMap[model.id] ?? []}
                             />
                           ) : (
                             <span className="text-[11px] text-muted">Reference</span>
@@ -205,7 +205,7 @@ export default async function AccessoriesPage({
             )}
           </Card>
           <p className="mt-3 px-1 text-[11px] text-muted">
-            Imported from A-OK 2025 pricing. Stock, pricing, tags and Crown &amp; Driver are managed by an admin under Admin · Motors.
+            Imported from A-OK 2025 pricing. Stock, pricing, tags and variations are managed by an admin under Admin · Motors.
           </p>
         </div>
       </div>

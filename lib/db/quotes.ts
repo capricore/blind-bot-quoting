@@ -4,13 +4,13 @@ import { admin } from "@/lib/supabase/admin";
 import { loadCatalog } from "./accessory-catalog";
 import type {
   AccessoryConfig,
-  CrownDriverConfig,
   ItemConfig,
   Product,
   QuoteComputation,
   QuoteDetails,
   QuoteItemRow,
   QuoteRow,
+  VariationSnapshot,
 } from "@/lib/types";
 import { ITEM_COLS, QUOTE_COLS, round2, type ItemAgg, nextRef } from "./internal";
 import { DEMO_RETAILER, ensureSeeded } from "./seed";
@@ -167,7 +167,7 @@ export async function addAccessoryItem(
   qty: number,
   sb: SupabaseClient = admin(),
   unitPrice?: number,
-  crownDriver?: CrownDriverConfig
+  variations: VariationSnapshot[] = []
 ): Promise<QuoteItemRow> {
   const cat = await loadCatalog();
   const brandName = cat.brand.name;
@@ -179,20 +179,16 @@ export async function addAccessoryItem(
     brand: brandName,
     category: category?.name ?? model.categoryId,
     image: cat.image(model),
-    ...(crownDriver ? { crownDriver } : {}),
+    ...(variations.length ? { variations } : {}),
   };
   // Snapshot the retailer's effective price (override → default → static), defaulting to static.
   const base = unitPrice ?? model.price ?? 0;
   const lines = [{ label: "Unit price", detail: model.sku, amount: base }];
   let price = base;
-  if (crownDriver?.mode === "crown-driver") {
-    if (crownDriver.crownPriceDelta) {
-      lines.push({ label: "Crown", detail: crownDriver.crownLabel, amount: crownDriver.crownPriceDelta });
-      price += crownDriver.crownPriceDelta;
-    }
-    if (crownDriver.driverPriceDelta) {
-      lines.push({ label: "Driver", detail: crownDriver.driverLabel, amount: crownDriver.driverPriceDelta });
-      price += crownDriver.driverPriceDelta;
+  for (const v of variations) {
+    if (v.price) {
+      lines.push({ label: v.variationName, detail: v.itemLabel, amount: v.price });
+      price += v.price;
     }
   }
   const computation: QuoteComputation = {
@@ -202,9 +198,7 @@ export async function addAccessoryItem(
     facts: [
       { label: "Brand", value: brandName },
       { label: "Model #", value: model.sku },
-      ...(crownDriver?.mode === "crown-driver"
-        ? [{ label: "Crown / Driver", value: `${crownDriver.crownLabel} · ${crownDriver.driverLabel}` }]
-        : []),
+      ...variations.map((v) => ({ label: v.variationName, value: v.itemLabel })),
     ],
     pricingVersion: ACCESSORY_PRICING_VERSION,
   };

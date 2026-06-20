@@ -4,37 +4,48 @@ import { TagAdmin } from "@/components/TagAdmin";
 import { ModelTagEditor, type TaggableModel } from "@/components/ModelTagEditor";
 import { MotorInventoryEditor, type InventoryRow } from "@/components/MotorInventoryEditor";
 import { MotorPriceEditor, type PriceRow, type Target } from "@/components/MotorPriceEditor";
-import { CrownDriverEditor } from "@/components/CrownDriverEditor";
+import { VariationsAdmin, type VariationProduct } from "@/components/VariationsAdmin";
 import { CatalogAdmin } from "@/components/CatalogAdmin";
 import { requireAdminPage } from "@/lib/auth/user";
 import {
   getAttributes,
-  getCrownOptions,
-  getDriverOptions,
   getEffectivePrices,
   getInventoryMap,
   getModelTagMap,
+  getProductVariationMap,
   getRetailerOverrideMap,
+  getVariations,
   listRetailers,
   loadCatalog,
   loadCatalogAdmin,
 } from "@/lib/db";
 
-type Tab = "catalog" | "inventory" | "pricing" | "tags" | "crown-driver";
+type Tab = "catalog" | "inventory" | "pricing" | "tags" | "variations";
 const TABS: { id: Tab; label: string }[] = [
   { id: "catalog", label: "Catalog" },
   { id: "inventory", label: "Inventory" },
   { id: "pricing", label: "Pricing" },
   { id: "tags", label: "Tags" },
-  { id: "crown-driver", label: "Crown & Driver" },
+  { id: "variations", label: "Variations" },
 ];
 
-/** Orderable motor models with category, the surface all motor admin shares. */
+/** Orderable motor models with category, the surface inventory/pricing share. */
 async function motors() {
   const cat = await loadCatalog();
   return cat.categories
     .filter((c) => c.orderable)
     .flatMap((c) => cat.modelsIn(c.id).map((m) => ({ id: m.id, name: m.name, sku: m.sku, category: c.name })));
+}
+
+/** Every accessory catalog model with its category — variations can apply to any product. */
+async function allProducts(): Promise<VariationProduct[]> {
+  const cat = await loadCatalog();
+  return cat.models.map((m) => ({
+    id: m.id,
+    name: m.name,
+    sku: m.sku,
+    categoryName: cat.category(m.categoryId)?.name ?? "",
+  }));
 }
 
 export default async function MotorsPage({
@@ -51,7 +62,7 @@ export default async function MotorsPage({
       <PageHeader
         eyebrow="Admin · Motors"
         title="Motor Management"
-        description="Everything motor-related in one place — stock, per-retailer pricing, filter tags, and Crown & Driver versions."
+        description="Everything motor-related in one place — stock, per-retailer pricing, filter tags, and product variations."
       />
 
       <div className="rise mb-6 flex flex-wrap gap-2">
@@ -73,7 +84,7 @@ export default async function MotorsPage({
       {tab === "inventory" && <InventoryTab />}
       {tab === "pricing" && <PricingTab retailerParam={retailer} />}
       {tab === "tags" && <TagsTab />}
-      {tab === "crown-driver" && <CrownDriverTab />}
+      {tab === "variations" && <VariationsTab />}
     </div>
   );
 }
@@ -112,9 +123,13 @@ async function TagsTab() {
   );
 }
 
-async function CrownDriverTab() {
-  const [crown, driver] = await Promise.all([getCrownOptions(), getDriverOptions()]);
-  return <CrownDriverEditor crown={crown} driver={driver} />;
+async function VariationsTab() {
+  const [variations, assignment, products] = await Promise.all([
+    getVariations(),
+    getProductVariationMap(),
+    allProducts(),
+  ]);
+  return <VariationsAdmin variations={variations} products={products} assignment={assignment} />;
 }
 
 async function PricingTab({ retailerParam }: { retailerParam?: string }) {
