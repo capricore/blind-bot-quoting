@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Swatch } from "@/components/renders";
 import { Badge, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
-import { canAccessOwned, requireUserId, userClient } from "@/lib/auth/user";
-import { getLine, getOrder, getOrderOwnerId, getProduct, loadCatalog } from "@/lib/db";
+import { OrderPayment } from "@/components/OrderPayment";
+import { canAccessOwned, isAdmin, requireUserId, userClient } from "@/lib/auth/user";
+import { admin } from "@/lib/supabase/admin";
+import { getBankInfo, getLine, getOrder, getOrderOwnerId, getProduct, loadCatalog } from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 import { isAccessoryConfig } from "@/lib/types";
 import { ACTOR_LABEL, fmtDate, fmtDateTime, ORDER_STATUS_META, usd } from "@/lib/format";
@@ -18,7 +20,16 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   if (!(await canAccessOwned(userId, await getOrderOwnerId(Number(id))))) notFound();
 
   const catalog = await loadCatalog(); // for accessory line images / names
-  const stageIdx = ORDER_STATUSES.indexOf(order.status);
+  const stageIdx = ORDER_STATUSES.indexOf(order.status as (typeof ORDER_STATUSES)[number]);
+
+  // Payment layer
+  const adminUser = await isAdmin(userId);
+  const bankInfo = order.paymentMethod === "bank_transfer" ? await getBankInfo() : null;
+  let proofUrl: string | null = null;
+  if (order.paymentProofPath) {
+    const { data } = await admin().storage.from("payment-proofs").createSignedUrl(order.paymentProofPath, 3600);
+    proofUrl = data?.signedUrl ?? null;
+  }
 
   return (
     <div>
@@ -36,7 +47,20 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         }
       />
 
-      {/* status stepper */}
+      <div className="rise mb-6">
+        <OrderPayment
+          orderId={order.id}
+          method={order.paymentMethod}
+          paymentStatus={order.paymentStatus}
+          amountLabel={usd(order.amount ?? order.quote.total)}
+          isAdmin={adminUser}
+          bankInfo={bankInfo}
+          proofUrl={proofUrl}
+        />
+      </div>
+
+      {/* status stepper — once the order is in the fulfilment pipeline */}
+      {order.status !== "awaiting_payment" && (
       <Card className="rise px-6 py-5">
         <div className="flex items-center">
           {ORDER_STATUSES.map((s, i) => {
@@ -70,6 +94,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           })}
         </div>
       </Card>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">

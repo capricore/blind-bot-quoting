@@ -43,6 +43,7 @@ const NAV: { section: string; adminOnly?: boolean; items: NavItem[] }[] = [
       { href: "/motors", label: "Motors", icon: "◉" },
       { href: "/supplier", label: "Supplier Console", icon: "⚙" },
       { href: "/pricing", label: "Pricing Versions", icon: "$" },
+      { href: "/settings", label: "Settings", icon: "✦" },
     ],
   },
 ];

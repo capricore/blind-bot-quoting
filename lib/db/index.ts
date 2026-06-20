@@ -22,4 +22,5 @@ export * from "./motors";
 export * from "./accessory-catalog";
 export * from "./accessory-catalog-admin";
 export * from "./variations";
+export * from "./settings";
 export * from "./messaging";
