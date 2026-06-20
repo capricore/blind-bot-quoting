@@ -6,12 +6,6 @@ import { loadCatalog } from "./accessory-catalog";
 // Reads are best-effort: if the tables aren't present yet (migration not run) they fall back
 // to "untracked / static catalog price", so the catalog never 500s on a missing migration.
 
-/** All orderable motor model ids (the surface these features apply to). */
-export async function orderableMotorIds(): Promise<string[]> {
-  const cat = await loadCatalog();
-  return cat.categories.filter((c) => c.orderable).flatMap((c) => cat.modelsIn(c.id).map((m) => m.id));
-}
-
 // ---------------- inventory ----------------
 
 /** model_id → stock. A model with no row is untracked (unlimited) and absent from the map. */
