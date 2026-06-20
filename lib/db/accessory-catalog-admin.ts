@@ -138,7 +138,9 @@ export async function createModel(
   const s = sku.trim();
   const n = name.trim();
   if (!s || !n) throw new Error("SKU and name are required");
-  const id = await uniqueId("accessory_models", slug(s), sb);
+  // Append a random suffix so a model id is never REUSED: a deleted product's leftover
+  // quote_items still point at its old id, so a same-SKU re-creation must not inherit it.
+  const id = await uniqueId("accessory_models", `${slug(s)}-${Math.random().toString(36).slice(2, 7)}`, sb);
   const { error } = await sb.from("accessory_models").insert({
     id, category_id: categoryId, sku: s, name: n,
     description: opts.description?.trim() || null,
