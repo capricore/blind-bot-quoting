@@ -117,7 +117,7 @@ async function seed(): Promise<void> {
   await mkOrder(
     "PO-2026-0001",
     q1,
-    { status: "delivered", supplier_order_no: "SZF-88217", tracking_no: "SF1029384756021", carrier: "SF Express Intl", eta_date: "2026-06-02", created_at: "2026-05-12 10:02:00", updated_at: "2026-06-02 16:21:00" },
+    { status: "delivered", payment_method: "bank_transfer", payment_status: "paid", paid_at: "2026-05-12 10:02:00", supplier_order_no: "SZF-88217", tracking_no: "SF1029384756021", carrier: "SF Express Intl", eta_date: "2026-06-02", created_at: "2026-05-12 10:02:00", updated_at: "2026-06-02 16:21:00" },
     [
       ["submitted", "Pre-order PO-2026-0001 submitted. Supplier order file generated and queued for delivery.", "retailer", "2026-05-12 10:02:00"],
       ["acknowledged", "Supplier confirmed order — supplier order no. SZF-88217.", "supplier", "2026-05-13 03:12:00"],
@@ -131,7 +131,7 @@ async function seed(): Promise<void> {
   await mkOrder(
     "PO-2026-0002",
     q2,
-    { status: "in_production", supplier_order_no: "SZF-88341", eta_date: "2026-06-24", created_at: "2026-05-26 15:10:00", updated_at: "2026-06-01 07:55:00" },
+    { status: "in_production", payment_method: "bank_transfer", payment_status: "paid", paid_at: "2026-05-26 15:10:00", supplier_order_no: "SZF-88341", eta_date: "2026-06-24", created_at: "2026-05-26 15:10:00", updated_at: "2026-06-01 07:55:00" },
     [
       ["submitted", "Pre-order PO-2026-0002 submitted. Supplier order file generated and queued for delivery.", "retailer", "2026-05-26 15:10:00"],
       ["acknowledged", "Supplier confirmed order — supplier order no. SZF-88341. ETA 2026-06-24.", "supplier", "2026-05-27 02:48:00"],

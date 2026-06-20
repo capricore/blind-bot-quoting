@@ -232,7 +232,11 @@ export const ORDER_STATUSES = [
   "delivered",
 ] as const;
 
-export type OrderStatus = (typeof ORDER_STATUSES)[number];
+// 'awaiting_payment' is the pre-pipeline state; the manual advance machine covers ORDER_STATUSES.
+export type OrderStatus = (typeof ORDER_STATUSES)[number] | "awaiting_payment";
+
+export type PaymentMethod = "stripe" | "paypal" | "bank_transfer";
+export type PaymentStatus = "pending" | "paid" | "failed";
 
 export interface OrderRow {
   id: number;
@@ -243,6 +247,12 @@ export interface OrderRow {
   trackingNo: string | null;
   carrier: string | null;
   etaDate: string | null;
+  paymentMethod: PaymentMethod | null;
+  paymentStatus: PaymentStatus;
+  paymentRef: string | null;
+  amount: number | null;
+  paidAt: string | null;
+  paymentProofPath: string | null;
   createdAt: string;
   updatedAt: string;
 }

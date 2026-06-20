@@ -1,43 +1,100 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { admin } from "@/lib/supabase/admin";
-import type { OrderEventRow, OrderRow, OrderStatus } from "@/lib/types";
+import type { OrderEventRow, OrderRow, OrderStatus, PaymentMethod } from "@/lib/types";
 import { EVENT_COLS, ORDER_COLS, round2, type ItemAgg, nextRef } from "./internal";
 import { ensureSeeded } from "./seed";
 import { getQuote } from "./quotes";
 import { deductMotorStock } from "./motors";
 import { isAccessoryConfig } from "@/lib/types";
 
-export async function submitPreOrder(quoteId: number, sb: SupabaseClient = admin()): Promise<OrderRow> {
+const PAYMENT_LABEL: Record<PaymentMethod, string> = {
+  stripe: "card (Stripe)",
+  paypal: "PayPal",
+  bank_transfer: "bank transfer",
+};
+
+/**
+ * Place a pre-order from a draft quote in `awaiting_payment`. Reserves motor stock and snapshots
+ * the amount; the order only enters the fulfilment pipeline once paid (markOrderPaid).
+ */
+export async function submitPreOrder(
+  quoteId: number,
+  paymentMethod: PaymentMethod,
+  sb: SupabaseClient = admin()
+): Promise<OrderRow> {
   const quote = await getQuote(quoteId, sb);
   if (!quote) throw new Error("Quote not found");
   if (quote.status !== "draft") throw new Error("Quote already converted");
   if (quote.items.length === 0) throw new Error("Quote has no items");
 
-  // Deduct motor stock first — throws (naming short models) if any tracked motor is short,
+  // Reserve motor stock first — throws (naming short models) if any tracked motor is short,
   // aborting the submit before anything is created. Uses admin() (inventory is admin-write).
   const motorNeeds = quote.items
     .filter((i) => isAccessoryConfig(i.config))
     .map((i) => ({ modelId: i.productId, qty: i.qty }));
   if (motorNeeds.length > 0) await deductMotorStock(motorNeeds, admin());
 
+  const amount = round2(quote.items.reduce((s, i) => s + i.computation.unitPrice * i.qty, 0));
   const ref = await nextRef("orders", "PO"); // count across all orders → service_role
   // Create the order FIRST, then flip the quote — so a failed insert can never strand the
-  // quote as `converted` with no order. (Not a true transaction; the order-first ordering
-  // is the cheap safeguard.)
+  // quote as `converted` with no order. (Not a true transaction; order-first is the safeguard.)
   const { data: order, error } = await sb
     .from("orders")
-    .insert({ ref, quote_id: quoteId, status: "submitted" })
+    .insert({ ref, quote_id: quoteId, status: "awaiting_payment", payment_method: paymentMethod, payment_status: "pending", amount })
     .select(ORDER_COLS)
     .single();
   if (error) throw error;
   await sb.from("quotes").update({ status: "converted", updated_at: new Date().toISOString() }).eq("id", quoteId);
   await sb.from("order_events").insert({
     order_id: (order as unknown as OrderRow).id,
-    status: "submitted",
+    status: "awaiting_payment",
     actor: "retailer",
-    note: `Pre-order ${ref} submitted by ${quote.retailer}. Supplier order file generated and queued for delivery.`,
+    note: `Pre-order ${ref} placed by ${quote.retailer} — awaiting ${PAYMENT_LABEL[paymentMethod]} payment.`,
   });
   return order as unknown as OrderRow;
+}
+
+/**
+ * Mark an order paid and move it into the pipeline (`submitted`). Idempotent: a no-op if the
+ * order is no longer awaiting payment. `proofPath` records a bank-transfer receipt.
+ */
+export async function markOrderPaid(
+  orderId: number,
+  opts: { ref?: string | null; proofPath?: string | null } = {},
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  const { data: cur } = await sb.from("orders").select("status, payment_method").eq("id", orderId).maybeSingle();
+  if (!cur) throw new Error("Order not found");
+  if ((cur as { status: string }).status !== "awaiting_payment") return; // already paid / in pipeline
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { payment_status: "paid", paid_at: now, status: "submitted", updated_at: now };
+  if (opts.ref !== undefined) patch.payment_ref = opts.ref;
+  if (opts.proofPath !== undefined) patch.payment_proof_path = opts.proofPath;
+  const { error } = await sb.from("orders").update(patch).eq("id", orderId);
+  if (error) throw error;
+  const method = (cur as { payment_method: PaymentMethod | null }).payment_method;
+  await sb.from("order_events").insert({
+    order_id: orderId,
+    status: "submitted",
+    actor: method === "bank_transfer" ? "system" : "retailer",
+    note: `Payment received (${method ? PAYMENT_LABEL[method] : "payment"}). Pre-order submitted to supplier.`,
+  });
+}
+
+/** Flag a failed gateway payment; the order stays `awaiting_payment` so the retailer can retry. */
+export async function markOrderPaymentFailed(orderId: number, reason: string, sb: SupabaseClient = admin()): Promise<void> {
+  const { error } = await sb
+    .from("orders")
+    .update({ payment_status: "failed", updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .eq("status", "awaiting_payment");
+  if (error) throw error;
+  await sb.from("order_events").insert({
+    order_id: orderId,
+    status: "note",
+    actor: "system",
+    note: `Payment failed${reason ? `: ${reason}` : ""}. You can retry payment.`,
+  });
 }
 
 type OrderListRow = OrderRow & {

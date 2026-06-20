@@ -54,19 +54,35 @@ export function DeleteDraftButton({ quoteId }: { quoteId: number }) {
   );
 }
 
+type PayMethod = "bank_transfer" | "stripe" | "paypal";
+const PAY_METHODS: { id: PayMethod; label: string; note: string; enabled: boolean }[] = [
+  { id: "bank_transfer", label: "Bank transfer", note: "We confirm once received", enabled: true },
+  { id: "stripe", label: "Credit / debit card", note: "Coming soon", enabled: false },
+  { id: "paypal", label: "PayPal", note: "Coming soon", enabled: false },
+];
+
 export function SubmitPreOrderButton({ quoteId, total }: { quoteId: number; total: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [method, setMethod] = useState<PayMethod>("bank_transfer");
 
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch(`/api/quotes/${quoteId}/submit`, { method: "POST" });
+      const r = await fetch(`/api/quotes/${quoteId}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ method }),
+      });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Submission failed");
+      if (data.redirect) {
+        window.location.href = data.redirect; // gateway hand-off (Stripe/PayPal — later)
+        return;
+      }
       router.push(`/orders/${data.order.id}`);
       router.refresh();
     } catch (e) {
@@ -75,28 +91,44 @@ export function SubmitPreOrderButton({ quoteId, total }: { quoteId: number; tota
     }
   };
 
-  return (
-    <div>
-      {confirming ? (
-        <div className="rounded-xl border border-brass/40 bg-brass-soft/60 p-4">
-          <p className="text-[13px] font-medium text-ink">
-            Place pre-order for {total}? The supplier order file will be generated and the order enters the
-            fulfillment pipeline.
-          </p>
-          <div className="mt-3 flex gap-2">
-            <Button variant="primary" onClick={submit} busy={busy} className="py-2">
-              {busy ? "Submitting…" : "Confirm pre-order"}
-            </Button>
-            <Button variant="secondary" onClick={() => setConfirming(false)} disabled={busy} className="py-2">
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button variant="primary" onClick={() => setConfirming(true)} className="w-full py-3">
-          Submit pre-order →
+  if (!open) {
+    return (
+      <div>
+        <Button variant="primary" onClick={() => setOpen(true)} className="w-full py-3">
+          Confirm &amp; pay →
         </Button>
-      )}
+        {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-brass/40 bg-brass-soft/60 p-4">
+      <p className="text-[13px] font-medium text-ink">Pay {total} to place this pre-order</p>
+      <div className="mt-3 space-y-2">
+        {PAY_METHODS.map((m) => (
+          <label
+            key={m.id}
+            className={cx(
+              "flex items-center gap-2 rounded-xl border bg-surface px-3 py-2.5 text-sm",
+              method === m.id && m.enabled ? "border-ink" : "border-line",
+              m.enabled ? "cursor-pointer" : "cursor-not-allowed opacity-50"
+            )}
+          >
+            <input type="radio" disabled={!m.enabled} checked={method === m.id} onChange={() => setMethod(m.id)} />
+            <span className="flex-1 font-medium text-ink">{m.label}</span>
+            <span className="text-[11px] text-muted">{m.note}</span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Button variant="primary" onClick={submit} busy={busy} className="py-2">
+          {busy ? "Placing…" : "Place pre-order"}
+        </Button>
+        <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy} className="py-2">
+          Cancel
+        </Button>
+      </div>
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
     </div>
   );
