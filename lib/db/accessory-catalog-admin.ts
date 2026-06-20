@@ -114,19 +114,13 @@ export async function deleteCategory(id: string, sb: SupabaseClient = admin()): 
 
 // ---------------- models ----------------
 
-/** Is a model referenced anywhere (quotes / inventory / pricing / tags)? Decides soft vs hard delete. */
-export async function modelReferenced(id: string, sb: SupabaseClient = admin()): Promise<boolean> {
-  const checks: [string, string][] = [
-    ["quote_items", "product_id"],
-    ["accessory_inventory", "model_id"],
-    ["accessory_prices", "model_id"],
-    ["accessory_model_tags", "model_id"],
-  ];
-  for (const [table, col] of checks) {
-    const { count } = await sb.from(table).select(col, { count: "exact", head: true }).eq(col, id);
-    if (count && count > 0) return true;
-  }
-  return false;
+/**
+ * Is a model used in a real quote/order? That's the only reference worth protecting — its
+ * config (inventory / pricing / tags) is just admin-managed settings we can clean up on delete.
+ */
+export async function modelUsedInQuotes(id: string, sb: SupabaseClient = admin()): Promise<boolean> {
+  const { count } = await sb.from("quote_items").select("product_id", { count: "exact", head: true }).eq("product_id", id);
+  return !!count && count > 0;
 }
 
 export async function createModel(
@@ -172,13 +166,21 @@ export async function updateModel(
   if (error) throw error;
 }
 
-/** Delete a model — soft (deactivate) if it's referenced, hard otherwise. Returns what happened. */
+/**
+ * Delete a model. If it's used in a real quote/order it's kept and just deactivated (soft) so
+ * history stays intact. Otherwise its config rows (inventory / pricing / tags) are cleaned up
+ * and the model is hard-deleted. Returns what happened.
+ */
 export async function deleteModel(id: string, sb: SupabaseClient = admin()): Promise<"soft" | "hard"> {
-  if (await modelReferenced(id, sb)) {
+  if (await modelUsedInQuotes(id, sb)) {
     const { error } = await sb.from("accessory_models").update({ active: false }).eq("id", id);
     if (error) throw error;
     return "soft";
   }
+  // No FK cascade (these tables predate accessory_models) — clear config rows explicitly.
+  await sb.from("accessory_inventory").delete().eq("model_id", id);
+  await sb.from("accessory_prices").delete().eq("model_id", id);
+  await sb.from("accessory_model_tags").delete().eq("model_id", id);
   const { error } = await sb.from("accessory_models").delete().eq("id", id);
   if (error) throw error;
   return "hard";

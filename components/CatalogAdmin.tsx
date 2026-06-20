@@ -159,7 +159,7 @@ function CategoryBlock({ category, models }: { category: AdminCategory; models: 
         <div className="border-t border-line/70 bg-[#fbfaf7] px-3 py-3">
           <ul className="space-y-1.5">
             {models.map((m) => (
-              <ModelRow key={m.id} model={m} />
+              <ModelRow key={`${m.id}:${m.active}`} model={m} />
             ))}
           </ul>
           <div className="mt-3 space-y-2 rounded-lg border border-dashed border-line p-2.5">
@@ -193,6 +193,7 @@ function ModelRow({ model }: { model: AdminModel }) {
   const [image, setImage] = useState(model.imageUrl ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   const dirty =
     name !== model.name || sku !== model.sku || active !== model.active ||
@@ -200,7 +201,7 @@ function ModelRow({ model }: { model: AdminModel }) {
     description !== (model.description ?? "") || image !== (model.imageUrl ?? "");
 
   const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setNote(null);
     try { await fn(); router.refresh(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
 
@@ -221,7 +222,7 @@ function ModelRow({ model }: { model: AdminModel }) {
           Save
         </Button>
         <button
-          onClick={() => run(async () => { const r = await call("DELETE", { entity: "model", id: model.id }); if (r.how === "soft") setErr("Referenced — deactivated instead of deleted."); })}
+          onClick={() => run(async () => { const r = await call("DELETE", { entity: "model", id: model.id }); if (r.how === "soft") setNote("In use on a quote — deactivated (hidden from retailers) instead of deleted, so past quotes stay intact."); })}
           disabled={busy}
           className="text-[11px] font-medium text-muted hover:text-red-500"
         >
@@ -259,6 +260,7 @@ function ModelRow({ model }: { model: AdminModel }) {
           <p className="text-[10.5px] text-muted">Upload sets the URL above; click <span className="font-medium">Save</span> to persist. PNG/JPEG/WebP ≤ 5 MB.</p>
         </div>
       )}
+      {note && <p className="mt-1 text-[11px] text-amber-600">{note}</p>}
       {err && <p className="mt-1 text-[11px] text-red-500">{err}</p>}
     </li>
   );
