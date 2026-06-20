@@ -149,12 +149,20 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                             <div className="mt-0.5 text-xs text-muted">
                               {cfg.brand} · {cfg.category} · {cfg.sku}
                             </div>
-                            {cfg.crownDriver?.mode === "crown-driver" && (
+                            {cfg.variations?.length ? (
                               <div className="mt-1 text-[11.5px] text-ink-soft">
-                                Crown: <span className="font-medium">{cfg.crownDriver.crownLabel}</span> · Driver:{" "}
+                                {cfg.variations.map((v) => (
+                                  <span key={v.itemId} className="mr-2">
+                                    {v.variationName}: <span className="font-medium">{v.itemLabel}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : cfg.crownDriver?.mode === "crown-driver" ? (
+                              <div className="mt-1 text-[11.5px] text-ink-soft">
+                                Crown: <span className="font-medium">{cfg.crownDriver.crownLabel}</span> · Drive:{" "}
                                 <span className="font-medium">{cfg.crownDriver.driverLabel}</span>
                               </div>
-                            )}
+                            ) : null}
                           </div>
                           <div className="text-right">
                             <div className="font-semibold tabular-nums text-ink">

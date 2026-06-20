@@ -11,12 +11,12 @@ import {
   getStock,
   loadCatalog,
   removeQuoteItem,
-  resolveCrownDriver,
   resolveMotorPrice,
+  resolveVariationSelections,
   updateQuoteItem,
 } from "@/lib/db";
 import { computeQuote, PricingError } from "@/lib/pricing";
-import type { CrownDriverConfig, ItemConfig, QuoteRow } from "@/lib/types";
+import type { ItemConfig, QuoteRow } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
       config?: ItemConfig;
       qty: number;
       quoteId?: number;
-      crownDriver?: { mode: "not-needed" } | { mode: "crown-driver"; crownId: string; driverId: string };
+      variationItemIds?: string[];
     };
     const qty = Math.max(1, Math.min(500, Math.round(body.qty || 1)));
     const quoteId = typeof body.quoteId === "number" && Number.isInteger(body.quoteId) ? body.quoteId : undefined;
@@ -75,27 +75,16 @@ export async function POST(req: Request) {
           { status: 409 }
         );
       }
-      // Resolve the Crown + Driver choice (snapshot labels + price deltas).
-      let crownDriver: CrownDriverConfig | undefined;
-      const rawCd = body.crownDriver;
-      if (rawCd?.mode === "crown-driver") {
-        const { crown, driver } = await resolveCrownDriver(rawCd.crownId, rawCd.driverId);
-        crownDriver = {
-          mode: "crown-driver",
-          crownId: crown.id,
-          crownLabel: crown.label,
-          crownPriceDelta: crown.priceDelta,
-          driverId: driver.id,
-          driverLabel: driver.label,
-          driverPriceDelta: driver.priceDelta,
-        };
-      } else if (rawCd?.mode === "not-needed") {
-        crownDriver = { mode: "not-needed" };
-      }
+      // Resolve the chosen variation items (validates availability + pairing; snapshots labels/prices).
+      const variations = await resolveVariationSelections(
+        accessory.id,
+        Array.isArray(body.variationItemIds) ? body.variationItemIds : [],
+        sb
+      );
       const quote = await resolveTargetQuote(userId, sb, quoteId);
       // Snapshot this retailer's effective price (override → default → static).
       const unitPrice = await resolveMotorPrice(accessory.id, userId);
-      const item = await addAccessoryItem(quote.id, accessory, qty, sb, unitPrice, crownDriver);
+      const item = await addAccessoryItem(quote.id, accessory, qty, sb, unitPrice, variations);
       return NextResponse.json({ quoteId: quote.id, quoteRef: quote.ref, item });
     }
 

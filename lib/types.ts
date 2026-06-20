@@ -97,8 +97,19 @@ export interface AccessoryConfig {
   category: string;
   /** Image URL snapshotted at add time, so the thumbnail survives if the catalog model is deleted. */
   image?: string;
-  /** Crown + Driver choice, snapshotted at add time (THE-772 — 0005). */
+  /** Chosen variation items, snapshotted at add time (THE-772 — 0010). Supersedes crownDriver. */
+  variations?: VariationSnapshot[];
+  /** Legacy Crown + Driver choice (pre-0010 lines); kept for display of old quotes. */
   crownDriver?: CrownDriverConfig;
+}
+
+/** One chosen variation item, snapshotted onto a quote line. */
+export interface VariationSnapshot {
+  variationId: string;
+  variationName: string;
+  itemId: string;
+  itemLabel: string;
+  price: number;
 }
 
 /** A motor's Crown + Driver selection on a quote line. */

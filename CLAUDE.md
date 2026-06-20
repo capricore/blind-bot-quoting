@@ -95,8 +95,8 @@ bilingual (中文/EN) supplier workbook (`GET /api/orders/:id/excel`).
 - **Deleting an accessory model must stay clean.** Quote/order lines snapshot the product
   (`AccessoryConfig` in `config` + `computation`), so a model can always be hard-deleted without
   breaking history — `deleteModel` (`lib/db/accessory-catalog-admin.ts`) deletes the model + all
-  its per-model config rows (`accessory_inventory`, `accessory_prices`, `accessory_model_tags`),
-  since none of those have an FK cascade to `accessory_models`. **Whenever you add a new table
+  its per-model config rows (`accessory_inventory`, `accessory_prices`, `accessory_model_tags`,
+  `variation_product_items`), since none of those have an FK cascade to `accessory_models`. **Whenever you add a new table
   keyed by an accessory model id** (a new tag-like attribute, crown/driver-style option, or any
   extra per-model setting), add a delete of its rows to `deleteModel` so the model still deletes
   cleanly. Only `quote_items` is intentionally left untouched (it's the snapshot); anything user

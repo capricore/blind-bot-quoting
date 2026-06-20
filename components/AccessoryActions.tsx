@@ -1,42 +1,61 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { stashPendingItem, type PendingCrownDriver } from "@/lib/pending-item";
-import type { MotorOption } from "@/lib/types";
+import { useMemo, useState } from "react";
+import { stashPendingItem } from "@/lib/pending-item";
+import type { VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
 import { Button, cx } from "./ui";
 
-/** Add an orderable motor to a quote — qty + optional Crown & Driver choice, capped at stock. */
+/** Add a product to a quote — qty + any variation choices (Crown+Drive paired), capped at stock. */
 export function AddAccessoryButton({
   modelId,
   quoteId,
   stock,
-  crownOptions = [],
-  driverOptions = [],
+  variations = [],
+  availableItemIds = [],
 }: {
   modelId: string;
   quoteId?: number;
   /** available stock; null = untracked (unlimited) */
   stock?: number | null;
-  crownOptions?: MotorOption[];
-  driverOptions?: MotorOption[];
+  variations?: VariationType[];
+  /** variation item ids assigned to this product */
+  availableItemIds?: string[];
 }) {
   const router = useRouter();
   const [qty, setQty] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState(false);
-  const [mode, setMode] = useState<"not-needed" | "crown-driver">("not-needed");
-  const [crownId, setCrownId] = useState(crownOptions[0]?.id ?? "");
-  const [driverId, setDriverId] = useState(driverOptions[0]?.id ?? "");
 
-  const hasCrownDriver = crownOptions.length > 0 && driverOptions.length > 0;
+  // Variation types available for this product (only assigned items), grouped.
+  const avail = useMemo(
+    () =>
+      variations
+        .map((t) => ({ ...t, items: t.items.filter((i) => availableItemIds.includes(i.id)) }))
+        .filter((t) => t.items.length > 0),
+    [variations, availableItemIds]
+  );
+  const pairGroups = useMemo(() => {
+    const m = new Map<string, VariationType[]>();
+    for (const t of avail) if (t.pairGroup) (m.get(t.pairGroup) ?? m.set(t.pairGroup, []).get(t.pairGroup)!).push(t);
+    return [...m.values()];
+  }, [avail]);
+  const independents = useMemo(() => avail.filter((t) => !t.pairGroup), [avail]);
+  const hasVariations = avail.length > 0;
+
+  // Selection state: a chosen item per type ("" = none), plus a per-group on/off toggle.
+  const [pick, setPick] = useState<Record<string, string>>(() =>
+    Object.fromEntries(avail.map((t) => [t.id, t.pairGroup ? t.items[0]?.id ?? "" : ""]))
+  );
+  const [groupOn, setGroupOn] = useState<Record<string, boolean>>({});
+
   const tracked = stock !== null && stock !== undefined;
   const outOfStock = tracked && stock === 0;
   const max = tracked ? (stock as number) : 500;
 
-  const submit = async (crownDriver: PendingCrownDriver) => {
+  const submit = async (variationItemIds: string[]) => {
     setBusy(true);
     setError(null);
     if (quoteId) {
@@ -44,7 +63,7 @@ export function AddAccessoryButton({
         const r = await fetch("/api/quote-items", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: modelId, qty, quoteId, crownDriver }),
+          body: JSON.stringify({ productId: modelId, qty, quoteId, variationItemIds }),
         });
         if (r.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
@@ -60,25 +79,35 @@ export function AddAccessoryButton({
       }
       return;
     }
-    stashPendingItem({ kind: "accessory", productId: modelId, qty, crownDriver });
+    stashPendingItem({ kind: "accessory", productId: modelId, qty, variationItemIds });
     router.push("/quotes/new");
   };
 
+  const collectIds = (): string[] => {
+    const ids: string[] = [];
+    for (const group of pairGroups) {
+      const key = group[0].pairGroup!;
+      if (groupOn[key]) for (const t of group) if (pick[t.id]) ids.push(pick[t.id]);
+    }
+    for (const t of independents) if (pick[t.id]) ids.push(pick[t.id]);
+    return ids;
+  };
+
   const onAdd = () => {
-    if (hasCrownDriver) setModal(true);
-    else submit({ mode: "not-needed" });
+    if (hasVariations) setModal(true);
+    else submit([]);
   };
 
   const confirmModal = () => {
-    if (mode === "crown-driver") {
-      if (!crownId || !driverId) {
-        setError("Pick a crown and a driver");
+    // Paired groups: if on, every type must have a pick (dropdowns default to the first item).
+    for (const group of pairGroups) {
+      const key = group[0].pairGroup!;
+      if (groupOn[key] && group.some((t) => !pick[t.id])) {
+        setError(`Pick a ${group.map((t) => t.name).join(" and ")}`);
         return;
       }
-      submit({ mode: "crown-driver", crownId, driverId });
-    } else {
-      submit({ mode: "not-needed" });
     }
+    submit(collectIds());
   };
 
   if (outOfStock) return <span className="text-[11px] font-medium text-red-500">Out of stock</span>;
@@ -110,44 +139,64 @@ export function AddAccessoryButton({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 text-left">
           <div className="absolute inset-0 bg-black/30" onClick={() => !busy && setModal(false)} aria-hidden />
           <div className="relative w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl">
-            <h2 className="text-base font-semibold tracking-tight text-ink">Crown &amp; Driver</h2>
-            <p className="mt-1 text-[12.5px] text-muted">Add a crown + driver to this motor, or skip it.</p>
+            <h2 className="text-base font-semibold tracking-tight text-ink">Options</h2>
+            <p className="mt-1 text-[12.5px] text-muted">Choose variations for this product, or skip.</p>
 
-            <div className="mt-4 space-y-2">
-              <label className={cx("flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm", mode === "not-needed" ? "border-ink bg-[#faf9f5]" : "border-line")}>
-                <input type="radio" checked={mode === "not-needed"} onChange={() => setMode("not-needed")} />
-                Not needed <span className="text-muted">— no crown &amp; driver</span>
-              </label>
-              <label className={cx("flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm", mode === "crown-driver" ? "border-ink bg-[#faf9f5]" : "border-line")}>
-                <input type="radio" checked={mode === "crown-driver"} onChange={() => setMode("crown-driver")} />
-                Crown + Driver
-              </label>
+            <div className="mt-4 space-y-4">
+              {/* paired groups (Crown + Drive) — added together or not at all */}
+              {pairGroups.map((group) => {
+                const key = group[0].pairGroup!;
+                const on = !!groupOn[key];
+                const title = group.map((t) => t.name).join(" + ");
+                return (
+                  <div key={key} className="rounded-xl border border-line p-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-ink">
+                      <input type="checkbox" checked={on} onChange={(e) => setGroupOn((g) => ({ ...g, [key]: e.target.checked }))} />
+                      Add {title}
+                    </label>
+                    {on && (
+                      <div className={cx("mt-3 grid gap-3", group.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+                        {group.map((t) => (
+                          <label key={t.id} className="block">
+                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
+                            <select
+                              value={pick[t.id] ?? ""}
+                              onChange={(e) => setPick((p) => ({ ...p, [t.id]: e.target.value }))}
+                              className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-ink"
+                            >
+                              {t.items.map((it) => (
+                                <option key={it.id} value={it.id}>
+                                  {it.name}{it.price ? ` (+${usd(it.price)})` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* independent variations — each optional */}
+              {independents.map((t) => (
+                <label key={t.id} className="block">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
+                  <select
+                    value={pick[t.id] ?? ""}
+                    onChange={(e) => setPick((p) => ({ ...p, [t.id]: e.target.value }))}
+                    className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-ink"
+                  >
+                    <option value="">— None —</option>
+                    {t.items.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.name}{it.price ? ` (+${usd(it.price)})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
             </div>
-
-            {mode === "crown-driver" && (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Crown</span>
-                  <select value={crownId} onChange={(e) => setCrownId(e.target.value)} className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-ink">
-                    {crownOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}{o.priceDelta ? ` (+${usd(o.priceDelta)})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">Driver</span>
-                  <select value={driverId} onChange={(e) => setDriverId(e.target.value)} className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-ink">
-                    {driverOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}{o.priceDelta ? ` (+${usd(o.priceDelta)})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
 
             {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
