@@ -1,16 +1,13 @@
-// Audit/repair stale accessory references on quote lines.
+// Report (read-only) accessory quote lines whose product_id now points at a DIFFERENT product
+// than the one that was quoted — a candidate stale reference from the old id-reuse bug
+// (a deleted product's slug id reused by a same-SKU re-creation, pre the "never reuse id" fix).
 //
-// Background: before the "never reuse a model id" fix, hard-deleting a product freed its
-// slug id; re-creating a same-SKU product reused it and inherited the deleted product's
-// leftover quote_items — a false "in use on quote N" when deleting the new product.
+// Signal: the live model at the line's product_id has a different sku/name than the line's
+// snapshot. (Heads-up: a deliberate sku/name *rename* of the same product also shows up here —
+// review by hand before doing anything. There is no auto-fix: quote lines are historical
+// snapshots and the safe remedy, if ever needed, is to re-point a specific product_id by hand.)
 //
-// A quote line is a *stale* reference when the model now living at its product_id was created
-// AFTER the quote line (so it cannot be the product that was actually quoted). Quote lines
-// snapshot everything they display (name/price/image), so re-pointing product_id to a tombstone
-// leaves the historical quote unchanged — it just stops the live product being falsely flagged.
-//
-//   node scripts/audit-stale-refs.mjs          # dry-run: report only
-//   node scripts/audit-stale-refs.mjs --fix     # re-point stale references to a tombstone id
+//   node scripts/audit-stale-refs.mjs
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
@@ -23,8 +20,6 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
   auth: { persistSession: false },
 });
 
-const FIX = process.argv.includes("--fix");
-
 async function main() {
   const { data: items, error } = await sb
     .from("quote_items")
@@ -32,57 +27,42 @@ async function main() {
     .eq("line_id", "accessory");
   if (error) throw error;
 
-  const { data: models } = await sb.from("accessory_models").select("id, sku, name, created_at");
+  const { data: models } = await sb.from("accessory_models").select("id, sku, name");
   const byId = new Map((models ?? []).map((m) => [m.id, m]));
 
   const { data: quotes } = await sb.from("quotes").select("id, ref");
   const refById = new Map((quotes ?? []).map((q) => [q.id, q.ref]));
 
-  const stale = [];
+  const mismatched = []; // live model exists but its sku/name ≠ the line snapshot
   const orphan = []; // product deleted, never recreated — harmless (no live model to flag)
   for (const it of items ?? []) {
     const model = byId.get(it.product_id);
     if (!model) {
       orphan.push(it);
-      continue;
-    }
-    if (new Date(model.created_at) > new Date(it.created_at)) {
-      stale.push({ it, model });
+    } else if (model.sku !== it.config?.sku || model.name !== it.config?.name) {
+      mismatched.push({ it, model });
     }
   }
 
   console.log(`\nAccessory quote lines scanned: ${items?.length ?? 0}`);
   console.log(`Orphaned references (deleted product, not recreated — harmless): ${orphan.length}`);
-  console.log(`STALE references (live product created after the quote — false "in use"): ${stale.length}\n`);
+  console.log(`Mismatched references (live product differs from snapshot — review): ${mismatched.length}\n`);
 
-  for (const { it, model } of stale) {
+  for (const { it, model } of mismatched) {
     const ref = refById.get(it.quote_id) ?? `#${it.quote_id}`;
     console.log(
       `  • quote ${ref}  product_id="${it.product_id}"\n` +
-        `      line snapshot : "${it.config?.name ?? "?"}" (sku ${it.config?.sku ?? "?"}), line @ ${it.created_at}\n` +
-        `      live model now: "${model.name}" (sku ${model.sku}), created @ ${model.created_at}  ← created later, so not the quoted product`
+        `      line snapshot : "${it.config?.name ?? "?"}" (sku ${it.config?.sku ?? "?"})\n` +
+        `      live model now: "${model.name}" (sku ${model.sku})  ← different — stale id reuse, OR a deliberate rename`
     );
   }
-
-  if (stale.length === 0) {
-    console.log("Nothing stale to clean. ✅");
-    return;
+  for (const it of orphan) {
+    const ref = refById.get(it.quote_id) ?? `#${it.quote_id}`;
+    console.log(`  (orphan) quote ${ref}  product_id="${it.product_id}"  "${it.config?.name ?? "?"}" — product deleted; harmless`);
   }
 
-  if (!FIX) {
-    console.log(`\nDry run. Re-run with --fix to re-point these ${stale.length} line(s) to a tombstone product_id.`);
-    return;
-  }
-
-  console.log(`\nRe-pointing ${stale.length} stale line(s)…`);
-  let ok = 0;
-  for (const { it } of stale) {
-    const tombstone = `${it.product_id}__hist__${it.id}`; // never produced by slug() or new ids
-    const { error: upErr } = await sb.from("quote_items").update({ product_id: tombstone }).eq("id", it.id);
-    if (upErr) console.log(`  ERR item ${it.id}: ${upErr.message}`);
-    else ok++;
-  }
-  console.log(`Done — ${ok}/${stale.length} re-pointed. Snapshots unchanged; historical quotes display the same.`);
+  if (mismatched.length === 0) console.log("\nNo mismatched references. Database is clean. ✅");
+  else console.log("\nReview the above by hand — renames look the same as stale reuse. No changes were made.");
 }
 
 main().catch((e) => {
