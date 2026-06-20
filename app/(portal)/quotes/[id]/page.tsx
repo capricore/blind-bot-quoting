@@ -185,8 +185,20 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                 );
               }
 
-              const product = getProduct(item.productId)!;
-              const line = getLine(item.lineId as string)!;
+              const product = getProduct(item.productId);
+              const line = product ? getLine(item.lineId as string) : null;
+              if (!product || !line) {
+                // Catalog product no longer exists — render from the line's stored price only.
+                return (
+                  <Card key={item.id} className="flex items-center justify-between px-5 py-4">
+                    <div>
+                      <div className="text-[15px] font-semibold text-ink">Product no longer in catalog</div>
+                      <div className="mt-0.5 text-xs text-muted">{item.qty} × {usd(item.computation.unitPrice)}</div>
+                    </div>
+                    <div className="font-semibold tabular-nums text-ink">{usd(item.computation.unitPrice * item.qty)}</div>
+                  </Card>
+                );
+              }
               const desc = describeConfig(line, product, item.config);
               return (
                 <Card key={item.id} className="px-5 py-4">

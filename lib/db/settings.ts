@@ -35,8 +35,3 @@ export async function setBankInfo(info: BankInfo, sb: SupabaseClient = admin()):
     .upsert({ key: BANK_KEY, value: info, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
-
-/** Enough filled in to show a retailer? (bank name + account name + account number minimum.) */
-export function bankInfoComplete(info: BankInfo): boolean {
-  return !!(info.bankName.trim() && info.accountName.trim() && info.accountNumber.trim());
-}

@@ -151,8 +151,19 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                     </li>
                   );
                 }
-                const product = getProduct(item.productId)!;
-                const line = getLine(item.lineId as string)!;
+                const product = getProduct(item.productId);
+                const line = product ? getLine(item.lineId as string) : null;
+                if (!product || !line) {
+                  return (
+                    <li key={item.id} className="flex items-center justify-between px-5 py-3.5">
+                      <div>
+                        <div className="text-[13.5px] font-semibold text-ink">Product no longer in catalog</div>
+                        <div className="text-[11px] text-muted">{item.qty} × {usd(item.computation.unitPrice)}</div>
+                      </div>
+                      <div className="text-sm font-semibold tabular-nums text-ink">{usd(item.computation.unitPrice * item.qty)}</div>
+                    </li>
+                  );
+                }
                 const desc = describeConfig(line, product, item.config);
                 return (
                   <li key={item.id} className="flex items-center gap-4 px-5 py-3.5">
