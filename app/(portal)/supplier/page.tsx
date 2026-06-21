@@ -1,14 +1,30 @@
 import Link from "next/link";
 import SupplierAdvanceButton from "@/components/SupplierActions";
+import { ListToolbar } from "@/components/ListToolbar";
 import { Card, EmptyState, PageHeader, StatusBadge } from "@/components/ui";
 import { requireAdminPage } from "@/lib/auth/user";
 import { expireStaleAwaitingOrders, getOrders } from "@/lib/db";
-import { fmtDate, usd } from "@/lib/format";
+import { fmtDate, ORDER_STATUS_META, usd } from "@/lib/format";
+import { pageSlice, parseListParams, PAGE_SIZE } from "@/lib/list";
 
-export default async function SupplierConsolePage() {
+const ORDER_STATUS_OPTIONS = Object.entries(ORDER_STATUS_META).map(([value, m]) => ({ value, label: m.label }));
+
+export default async function SupplierConsolePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireAdminPage("/supplier");
   await expireStaleAwaitingOrders().catch(() => {}); // lazy sweep of abandoned unpaid orders
-  const orders = await getOrders();
+  const all = await getOrders();
+  const { q, status, page } = parseListParams(await searchParams);
+  const ql = q.toLowerCase();
+  const filtered = all.filter(
+    (o) =>
+      (!status || o.status === status) &&
+      (!q || `${o.ref} ${o.retailer} ${o.projectName ?? ""} ${o.supplierOrderNo ?? ""}`.toLowerCase().includes(ql))
+  );
+  const orders = pageSlice(filtered, page);
 
   return (
     <div>
@@ -26,12 +42,14 @@ export default async function SupplierConsolePage() {
         </p>
       </Card>
 
-      {orders.length === 0 ? (
+      {all.length === 0 ? (
         <EmptyState
           title="Nothing in the pipeline"
           description="Pre-orders submitted by retailers appear here for fulfillment."
         />
       ) : (
+        <>
+        <ListToolbar basePath="/supplier" q={q} status={status} statuses={ORDER_STATUS_OPTIONS} total={filtered.length} page={page} pageSize={PAGE_SIZE} />
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -74,7 +92,9 @@ export default async function SupplierConsolePage() {
               ))}
             </tbody>
           </table>
+          {orders.length === 0 && <p className="px-5 py-8 text-center text-sm text-muted">No orders match your search.</p>}
         </Card>
+        </>
       )}
     </div>
   );
