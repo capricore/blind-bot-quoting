@@ -1,12 +1,31 @@
 import Link from "next/link";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { ListToolbar } from "@/components/ListToolbar";
 import { requireUserId, userClient } from "@/lib/auth/user";
 import { getQuotes } from "@/lib/db";
 import { fmtDate, usd } from "@/lib/format";
+import { pageSlice, parseListParams, PAGE_SIZE } from "@/lib/list";
 
-export default async function QuotesPage() {
+const QUOTE_STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "converted", label: "Converted" },
+];
+
+export default async function QuotesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const ownerId = await requireUserId("/quotes");
-  const quotes = await getQuotes(ownerId, await userClient());
+  const all = await getQuotes(ownerId, await userClient());
+  const { q, status, page } = parseListParams(await searchParams);
+  const ql = q.toLowerCase();
+  const filtered = all.filter(
+    (x) =>
+      (!status || x.status === status) &&
+      (!q || `${x.ref} ${x.projectName ?? ""} ${x.customerName ?? ""} ${x.sidemark ?? ""} ${x.po ?? ""}`.toLowerCase().includes(ql))
+  );
+  const quotes = pageSlice(filtered, page);
 
   return (
     <div>
@@ -17,13 +36,15 @@ export default async function QuotesPage() {
         actions={<LinkButton href="/quotes/new">Create New Quote</LinkButton>}
       />
 
-      {quotes.length === 0 ? (
+      {all.length === 0 ? (
         <EmptyState
           title="No quotes yet"
           description="Start a quote with the customer and ship-to details, then add products — or configure a product from the catalog and we'll help you create one."
           action={<LinkButton href="/quotes/new">Create New Quote</LinkButton>}
         />
       ) : (
+        <>
+        <ListToolbar basePath="/quotes" q={q} status={status} statuses={QUOTE_STATUS_OPTIONS} total={filtered.length} page={page} pageSize={PAGE_SIZE} />
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -65,7 +86,9 @@ export default async function QuotesPage() {
               ))}
             </tbody>
           </table>
+          {quotes.length === 0 && <p className="px-5 py-8 text-center text-sm text-muted">No quotes match your search.</p>}
         </Card>
+        </>
       )}
     </div>
   );
