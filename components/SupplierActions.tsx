@@ -35,6 +35,7 @@ export default function SupplierAdvanceButton({
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
 
   const post = async (url: string, init?: RequestInit) => {
     setBusy(true);
@@ -55,10 +56,20 @@ export default function SupplierAdvanceButton({
     }
   };
 
-  const cancel = () => post(`/api/orders/${orderId}/cancel`);
-  const cancelLink = (
-    <button onClick={cancel} disabled={busy} className="text-[11px] font-medium text-muted hover:text-red-500">
-      Cancel
+  // Close an unpaid order (e.g. the customer never paid): release reserved stock + reopen quote.
+  const closeControl = confirmClose ? (
+    <span className="flex items-center gap-2 text-[11px]">
+      <span className="text-muted">Close &amp; release stock?</span>
+      <button onClick={() => post(`/api/orders/${orderId}/cancel`)} disabled={busy} className="font-semibold text-red-600 hover:underline">
+        {busy ? "…" : "Yes, close"}
+      </button>
+      <button onClick={() => setConfirmClose(false)} disabled={busy} className="text-muted hover:underline">
+        No
+      </button>
+    </span>
+  ) : (
+    <button onClick={() => setConfirmClose(true)} disabled={busy} className="text-[11px] font-medium text-muted hover:text-red-500">
+      Close order
     </button>
   );
 
@@ -85,7 +96,7 @@ export default function SupplierAdvanceButton({
         ) : (
           <span className="text-xs text-muted">{paymentStatus === "failed" ? "Card payment failed" : "Awaiting payment"}</span>
         )}
-        {cancelLink}
+        {closeControl}
         {error && <span className="text-[11px] text-red-500">{error}</span>}
 
         {confirmOpen && (
