@@ -12,7 +12,7 @@ import type {
   QuoteRow,
   VariationSnapshot,
 } from "@/lib/types";
-import { ITEM_COLS, QUOTE_COLS, round2, type ItemAgg, nextRef } from "./internal";
+import { ITEM_COLS, QUOTE_COLS, round2, type ItemAgg, insertWithRef } from "./internal";
 import { DEMO_RETAILER, ensureSeeded } from "./seed";
 
 // Map camelCase QuoteDetails → snake_case columns; only keys actually present are written.
@@ -67,14 +67,15 @@ export async function getOrCreateDraftQuote(
 ): Promise<QuoteRow> {
   const existing = await getDraftQuote(ownerId, sb);
   if (existing) return existing;
-  const ref = await nextRef("quotes", "Q"); // count across all quotes → service_role
-  const { data, error } = await sb
-    .from("quotes")
-    .insert({ ref, retailer: DEMO_RETAILER, status: "draft", owner_id: ownerId, project_name: projectName ?? null })
-    .select(QUOTE_COLS)
-    .single();
-  if (error) throw error;
-  return data as unknown as QuoteRow;
+  return insertWithRef("quotes", "Q", async (ref) => {
+    const { data, error } = await sb
+      .from("quotes")
+      .insert({ ref, retailer: DEMO_RETAILER, status: "draft", owner_id: ownerId, project_name: projectName ?? null })
+      .select(QUOTE_COLS)
+      .single();
+    if (error) throw error;
+    return data as unknown as QuoteRow;
+  });
 }
 
 /** Create a new draft quote with header details (the "Create new quote" flow). */
@@ -84,14 +85,15 @@ export async function createQuote(
   sb: SupabaseClient = admin()
 ): Promise<QuoteRow> {
   await ensureSeeded();
-  const ref = await nextRef("quotes", "Q");
-  const { data, error } = await sb
-    .from("quotes")
-    .insert({ ref, retailer: DEMO_RETAILER, status: "draft", owner_id: ownerId, ...detailColumns(details) })
-    .select(QUOTE_COLS)
-    .single();
-  if (error) throw error;
-  return data as unknown as QuoteRow;
+  return insertWithRef("quotes", "Q", async (ref) => {
+    const { data, error } = await sb
+      .from("quotes")
+      .insert({ ref, retailer: DEMO_RETAILER, status: "draft", owner_id: ownerId, ...detailColumns(details) })
+      .select(QUOTE_COLS)
+      .single();
+    if (error) throw error;
+    return data as unknown as QuoteRow;
+  });
 }
 
 /** Update a quote's header details (customer / ship-to / references). */

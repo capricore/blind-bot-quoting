@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { admin } from "@/lib/supabase/admin";
 import type { OrderEventRow, OrderRow, OrderStatus, PaymentMethod } from "@/lib/types";
-import { EVENT_COLS, ORDER_COLS, round2, type ItemAgg, nextRef } from "./internal";
+import { EVENT_COLS, ORDER_COLS, round2, type ItemAgg, insertWithRef } from "./internal";
 import { ensureSeeded } from "./seed";
 import { getQuote } from "./quotes";
 import { getQuoteOwnerId } from "./ownership";
@@ -67,20 +67,22 @@ export async function submitPreOrder(
     // Snapshot the retailer's standing discount so a later rate change never alters this order.
     const discountPct = await getRetailerDiscount(await getQuoteOwnerId(quoteId));
     const amount = round2(subtotal * (1 - discountPct / 100));
-    const ref = await nextRef("orders", "PO");
-    const { data: order, error } = await sb
-      .from("orders")
-      .insert({ ref, quote_id: quoteId, status: "awaiting_payment", payment_method: paymentMethod, payment_status: "pending", amount, discount_pct: discountPct })
-      .select(ORDER_COLS)
-      .single();
-    if (error) throw error;
+    const order = await insertWithRef("orders", "PO", async (ref) => {
+      const { data, error } = await sb
+        .from("orders")
+        .insert({ ref, quote_id: quoteId, status: "awaiting_payment", payment_method: paymentMethod, payment_status: "pending", amount, discount_pct: discountPct })
+        .select(ORDER_COLS)
+        .single();
+      if (error) throw error;
+      return data as unknown as OrderRow;
+    });
     await sb.from("order_events").insert({
-      order_id: (order as unknown as OrderRow).id,
+      order_id: order.id,
       status: "awaiting_payment",
       actor: "retailer",
-      note: `Pre-order ${ref} placed by ${quote.retailer} — awaiting ${PAYMENT_LABEL[paymentMethod]} payment.`,
+      note: `Pre-order ${order.ref} placed by ${quote.retailer} — awaiting ${PAYMENT_LABEL[paymentMethod]} payment.`,
     });
-    return order as unknown as OrderRow;
+    return order;
   } catch (e) {
     // Roll back the gate (+ any reserved stock) so the retailer can retry.
     if (reserved) await restoreMotorStock(motorNeeds, admin()).catch(() => {});
