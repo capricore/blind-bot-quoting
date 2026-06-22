@@ -18,13 +18,67 @@ export const EVENT_COLS = "id, orderId:order_id, status, note, actor, createdAt:
 
 export type ItemAgg = { quoteId: number; qty: number; computation: { unitPrice: number } };
 
-function nextRefFrom(count: number, prefix: string): string {
-  const year = new Date().getFullYear();
-  return `${prefix}-${year}-${String(count + 1).padStart(4, "0")}`;
+/**
+ * Pure: next ref for `prefix`+`year` given the refs that already exist.
+ * Uses the MAX existing sequence number (+1), NOT the row count — counting breaks the moment a
+ * row is deleted (count drops below the highest number in use, so count+1 re-mints a live ref and
+ * trips the `ref` unique constraint). Refs that don't match the current prefix/year are ignored,
+ * so each year starts a fresh 0001 series.
+ */
+export function nextRefFrom(existing: string[], prefix: string, year: number): string {
+  const re = new RegExp(`^${prefix}-${year}-(\\d+)$`);
+  let max = 0;
+  for (const ref of existing) {
+    const m = re.exec(ref);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `${prefix}-${year}-${String(max + 1).padStart(4, "0")}`;
 }
 
-/** Next sequential ref (e.g. Q-2026-0007 / PO-2026-0003), counted across all rows → service_role. */
+/**
+ * Next sequential ref (e.g. Q-2026-0007 / PO-2026-0003), from the max in-use ref → service_role
+ * (must see refs across all owners, so it can't run under a retailer's RLS view). Reads the single
+ * lexically-largest ref via DB ordering — refs are zero-padded to 4 digits, so lexical order equals
+ * numeric order up to 9999/prefix/year, which also dodges PostgREST's default 1000-row read cap.
+ */
 export async function nextRef(table: "quotes" | "orders", prefix: string): Promise<string> {
-  const { count } = await admin().from(table).select("*", { count: "exact", head: true });
-  return nextRefFrom(count ?? 0, prefix);
+  const year = new Date().getFullYear();
+  const { data } = await admin()
+    .from(table)
+    .select("ref")
+    .like("ref", `${prefix}-${year}-%`)
+    .order("ref", { ascending: false })
+    .limit(1);
+  const refs = ((data ?? []) as { ref: string | null }[]).map((r) => r.ref ?? "");
+  return nextRefFrom(refs, prefix, year);
+}
+
+/** Postgres unique-violation (e.g. a concurrent insert grabbed the same ref first). */
+function isUniqueViolation(e: unknown): boolean {
+  return !!e && typeof e === "object" && (e as { code?: string }).code === "23505";
+}
+
+/**
+ * Insert a row carrying a generated `ref`, retrying on a `ref` unique-violation. `nextRef` removes
+ * the delete-gap collision; the retry closes the remaining concurrency window (two inserts reading
+ * the same max before either commits). `build` must perform the insert with the given ref and throw
+ * on DB error (Supabase returns errors, so call sites do `if (error) throw error`).
+ */
+export async function insertWithRef<T>(
+  table: "quotes" | "orders",
+  prefix: string,
+  build: (ref: string) => Promise<T>,
+  attempts = 5
+): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    const ref = await nextRef(table, prefix);
+    try {
+      return await build(ref);
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      lastErr = e; // ref clash — recompute the max and retry
+    }
+  }
+  throw lastErr;
 }
