@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { AddAccessoryButton } from "@/components/AccessoryActions";
 import { AccessoryFilters } from "@/components/AccessoryFilters";
+import { FrequentParts, type FrequentPart } from "@/components/FrequentParts";
 import { Badge, Card, cx, PageHeader } from "@/components/ui";
 import { getCurrentUserId } from "@/lib/auth/user";
 import {
   getAttributes,
   getEffectivePrices,
+  getFrequentPartIds,
   getInventoryMap,
   getModelFilesMap,
   getModelTagMap,
@@ -28,7 +30,7 @@ export default async function AccessoriesPage({
   const q = quoteId ? `&quote=${quoteId}` : "";
 
   const userId = await getCurrentUserId();
-  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap] = await Promise.all([
+  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap, frequentRaw] = await Promise.all([
     loadCatalog(),
     getAttributes(),
     getModelTagMap(),
@@ -38,7 +40,30 @@ export default async function AccessoriesPage({
     getProductVariationMap(), // model_id → available variation item ids
     getModelFilesMap(), // model_id → spec/cert attachments
     getProductDefaultsMap(), // model_id → default variation item ids
+    userId ? getFrequentPartIds(userId, 12) : Promise.resolve([]), // over-fetch; stale ids filtered below
   ]);
+
+  // Enrich the frequently-ordered ids with the live catalog; drop any that are gone /
+  // no longer orderable / unpriced so we never pin a stale suggestion, then keep the top 3.
+  const frequentParts: FrequentPart[] = frequentRaw.flatMap(({ modelId, orderCount }) => {
+    const model = catalog.model(modelId);
+    if (!model) return [];
+    const modelCat = catalog.category(model.categoryId);
+    if (!modelCat?.orderable) return [];
+    const price = effectivePrices[modelId] ?? model.price;
+    if (price === null || price === undefined) return [];
+    return [{
+      modelId,
+      name: model.name,
+      sku: model.sku,
+      image: catalog.image(model),
+      price,
+      orderCount,
+      stock: modelId in inventory ? inventory[modelId] : null,
+      availableItemIds: variationMap[modelId] ?? [],
+      defaultItemIds: defaultsMap[modelId] ?? [],
+    }];
+  }).slice(0, 3);
   const categories = catalog.categories;
   const activeCat = categories.find((c) => c.id === cat) ?? categories[0];
 
@@ -82,6 +107,8 @@ export default async function AccessoriesPage({
           </Link>
         </div>
       )}
+
+      <FrequentParts parts={frequentParts} quoteId={quoteId} variations={variations} />
 
       <AccessoryFilters attributes={attributes} selected={selected} cat={cat} quote={quoteId} />
 
