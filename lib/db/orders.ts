@@ -241,6 +241,43 @@ export async function getOrders(ownerId?: string, sb: SupabaseClient = admin()):
     });
 }
 
+/**
+ * A retailer's most frequently ordered accessory parts, ranked by how many of their (non-cancelled)
+ * orders each part appears in (tie-break: total quantity). Returns model ids + counts only — the
+ * caller enriches with the live catalog (and drops models that are gone / no longer orderable).
+ */
+export async function getFrequentPartIds(
+  ownerId: string,
+  limit = 3,
+  sb: SupabaseClient = admin()
+): Promise<{ modelId: string; orderCount: number; totalQty: number }[]> {
+  if (!ownerId) return [];
+  const { data: quotes } = await sb.from("quotes").select("id").eq("owner_id", ownerId);
+  const quoteIds = ((quotes ?? []) as { id: number }[]).map((q) => q.id);
+  if (quoteIds.length === 0) return [];
+  // Only quotes that became a real (non-cancelled) order count as "ordered".
+  const { data: orders } = await sb.from("orders").select("quote_id").in("quote_id", quoteIds).neq("status", "cancelled");
+  const orderedQuoteIds = [...new Set(((orders ?? []) as { quote_id: number }[]).map((o) => o.quote_id))];
+  if (orderedQuoteIds.length === 0) return [];
+  const { data: items } = await sb
+    .from("quote_items")
+    .select("quote_id, product_id, qty")
+    .eq("line_id", "accessory")
+    .in("quote_id", orderedQuoteIds);
+
+  const agg = new Map<string, { orders: Set<number>; qty: number }>();
+  for (const it of (items ?? []) as { quote_id: number; product_id: string; qty: number }[]) {
+    const e = agg.get(it.product_id) ?? { orders: new Set<number>(), qty: 0 };
+    e.orders.add(it.quote_id);
+    e.qty += it.qty;
+    agg.set(it.product_id, e);
+  }
+  return [...agg.entries()]
+    .map(([modelId, e]) => ({ modelId, orderCount: e.orders.size, totalQty: e.qty }))
+    .sort((a, b) => b.orderCount - a.orderCount || b.totalQty - a.totalQty)
+    .slice(0, limit);
+}
+
 export async function getOrder(
   id: number,
   sb: SupabaseClient = admin()
