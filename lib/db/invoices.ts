@@ -38,8 +38,11 @@ export async function getOrAssignInvoiceRef(quoteId: number): Promise<string> {
   // System numbering (like quote/order ref-numbering) — always service_role: the global ref scan
   // must see all retailers' refs, and the write must succeed for public demo quotes (owner_id NULL,
   // which RLS would block). Page-level access is gated separately (canAccessOwned).
+  // admin() reads bypass Next's fetch cache/memoization (see lib/supabase/admin.ts), so the
+  // post-write read below actually re-queries the DB and sees the value this request just wrote —
+  // without that, read→write→read returned a memoized stale null and threw spuriously.
   const sb = admin();
-  const read = async () => {
+  const read = async (): Promise<string | null> => {
     const { data } = await sb.from("quotes").select("invoice_ref").eq("id", quoteId).maybeSingle();
     return (data as { invoice_ref: string | null } | null)?.invoice_ref ?? null;
   };
@@ -49,11 +52,7 @@ export async function getOrAssignInvoiceRef(quoteId: number): Promise<string> {
 
   for (let i = 0; i < 5; i++) {
     const ref = await nextInvoiceRef();
-    const { error } = await sb
-      .from("quotes")
-      .update({ invoice_ref: ref })
-      .eq("id", quoteId)
-      .is("invoice_ref", null);
+    const { error } = await sb.from("quotes").update({ invoice_ref: ref }).eq("id", quoteId).is("invoice_ref", null);
     if (!error) {
       const got = await read(); // our write, or a concurrent winner's
       if (got) return got;
@@ -61,8 +60,6 @@ export async function getOrAssignInvoiceRef(quoteId: number): Promise<string> {
       throw error; // 23505 = ref taken by another quote → recompute and retry
     }
   }
-  // The loop can exhaust on a flaky connection where the write landed but the follow-up read
-  // transiently failed — one last read recovers the already-assigned ref before we give up.
   const final = await read();
   if (final) return final;
   throw new Error("Could not assign invoice number");
