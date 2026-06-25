@@ -1,6 +1,6 @@
 import { AddAccessoryButton } from "./AccessoryActions";
 import { Card } from "./ui";
-import type { VariationType } from "@/lib/db";
+import type { VariationRestriction, VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
 
 export type FrequentPart = {
@@ -13,6 +13,7 @@ export type FrequentPart = {
   stock: number | null;
   availableItemIds: string[];
   defaultItemIds: string[];
+  moq: number;
 };
 
 /**
@@ -23,10 +24,12 @@ export function FrequentParts({
   parts,
   quoteId,
   variations,
+  restrictions,
 }: {
   parts: FrequentPart[];
   quoteId?: number;
   variations: VariationType[];
+  restrictions: VariationRestriction[];
 }) {
   if (parts.length === 0) return null;
   return (
@@ -38,12 +41,18 @@ export function FrequentParts({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {parts.map((p) => (
           <div key={p.modelId} className="flex gap-3 rounded-xl border border-line bg-[#fbfaf6] p-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={p.image}
-              alt={p.name}
-              className="size-14 shrink-0 rounded-xl bg-[#0e0e10] object-contain p-1.5"
-            />
+            {p.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={p.image}
+                alt={p.name}
+                className="size-14 shrink-0 rounded-xl bg-[#0e0e10] object-contain p-1.5"
+              />
+            ) : (
+              <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[#0e0e10] text-[10px] font-medium text-white/40">
+                No image
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <div className="truncate text-[13px] font-semibold text-ink" title={p.name}>
                 {p.name}
@@ -63,6 +72,8 @@ export function FrequentParts({
                   variations={variations}
                   availableItemIds={p.availableItemIds}
                   defaultItemIds={p.defaultItemIds}
+                  restrictions={restrictions}
+                  minOrder={p.moq}
                 />
               </div>
             </div>

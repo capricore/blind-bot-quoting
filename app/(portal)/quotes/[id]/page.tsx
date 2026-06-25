@@ -5,8 +5,20 @@ import { QuoteDetailsDrawer } from "@/components/QuoteDetailsDrawer";
 import { LineQtyEditor } from "@/components/LineQtyEditor";
 import { Swatch } from "@/components/renders";
 import { BackLink, Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
-import { canAccessOwned, requireUserId, userClient } from "@/lib/auth/user";
-import { getLine, getOrderRefByQuote, getProduct, getQuote, getQuoteOwnerId, getRetailerDiscount, loadCatalog } from "@/lib/db";
+import { QuoteChatLauncher } from "@/components/QuoteChatLauncher";
+import { canAccessOwned, isAdmin, requireUserId, userClient } from "@/lib/auth/user";
+import {
+  getConversationForRetailer,
+  getLine,
+  getMessages,
+  getOrderRefByQuote,
+  getProduct,
+  getQuote,
+  getQuoteOwnerId,
+  getRetailerDiscount,
+  getUnreadCount,
+  loadCatalog,
+} from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 import { fmtDate, usd } from "@/lib/format";
 import { isAccessoryConfig } from "@/lib/types";
@@ -46,6 +58,19 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   const order =
     quote.status === "converted" ? await getOrderRefByQuote(quote.id, sb) : undefined;
   const catalog = await loadCatalog(); // for accessory line images / names
+
+  // Retailer-facing "message us about this quote" bubble. Admins reply from the full inbox at
+  // /messages (where the quote chip carries the context), so the launcher is retailer-only.
+  const viewerIsAdmin = await isAdmin(userId);
+  const conv = viewerIsAdmin ? null : await getConversationForRetailer(userId, sb);
+  const chat = viewerIsAdmin
+    ? null
+    : {
+        conversationId: conv?.id ?? null,
+        messages: conv ? await getMessages(conv.id, sb) : [],
+        peerReadAt: conv?.adminLastReadAt ?? null,
+        unread: await getUnreadCount(userId, false, sb),
+      };
 
   const details = {
     quoteType: quote.quoteType,
@@ -329,6 +354,16 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
             </div>
           </div>
         </div>
+      )}
+
+      {chat && (
+        <QuoteChatLauncher
+          quote={{ id: quote.id, ref: quote.ref }}
+          conversationId={chat.conversationId}
+          initialMessages={chat.messages}
+          initialPeerReadAt={chat.peerReadAt}
+          initialUnread={chat.unread}
+        />
       )}
     </div>
   );

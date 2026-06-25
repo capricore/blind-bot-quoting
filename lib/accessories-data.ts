@@ -27,6 +27,7 @@ export interface AccessoryModel {
   description: string;
   price: number | null; // USD; null = "included" / no standalone price
   imageUrl?: string;
+  moq?: number; // minimum order quantity; 0/undefined = no minimum
 }
 
 export const ACCESSORY_BRAND = { id: "a-ok", name: "A-OK", tagline: "Window covering motors & controls" };

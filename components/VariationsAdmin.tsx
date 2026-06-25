@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import type { VariationItem, VariationType } from "@/lib/db";
+import { useMemo, useState } from "react";
+import type { VariationItem, VariationRestriction, VariationType } from "@/lib/db";
 import { Button, Card, cx } from "./ui";
 
 export type VariationProduct = { id: string; name: string; sku: string; categoryName: string };
@@ -33,11 +33,13 @@ export function VariationsAdmin({
   products,
   assignment,
   defaults,
+  restrictions,
 }: {
   variations: VariationType[];
   products: VariationProduct[];
   assignment: Record<string, string[]>;
   defaults: Record<string, string[]>;
+  restrictions: VariationRestriction[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -74,6 +76,13 @@ export function VariationsAdmin({
             Add variation
           </Button>
         </Card>
+      </div>
+
+      {/* ---- compatibility rules between two variations ---- */}
+      <div className="space-y-3">
+        <h3 className="text-[13px] font-semibold uppercase tracking-wide text-muted">Compatibility</h3>
+        <p className="text-[12px] text-muted">Mark which option combinations don&apos;t work together. Blocked options grey out for the customer once the conflicting option is chosen — e.g. a Crown that doesn&apos;t fit a given Drive.</p>
+        <RestrictionMatrix variations={variations} restrictions={restrictions} />
       </div>
 
       {/* ---- per-product assignment ---- */}
@@ -290,5 +299,193 @@ function ProductRow({
         </div>
       )}
     </div>
+  );
+}
+
+const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+/** Compatibility grid: pick two variations, then toggle which item pairs can't be combined. */
+function RestrictionMatrix({
+  variations,
+  restrictions,
+}: {
+  variations: VariationType[];
+  restrictions: VariationRestriction[];
+}) {
+  const router = useRouter();
+  const withItems = useMemo(() => variations.filter((v) => v.items.length > 0), [variations]);
+
+  // Default to a paired group (e.g. Crown + Drive) if one exists, else the first two variations.
+  const [pair] = useState(() => {
+    const groups = new Map<string, VariationType[]>();
+    for (const v of withItems) if (v.pairGroup) (groups.get(v.pairGroup) ?? groups.set(v.pairGroup, []).get(v.pairGroup)!).push(v);
+    const paired = [...groups.values()].find((g) => g.length >= 2);
+    const [a, b] = paired ?? withItems;
+    return { a: a?.id ?? "", b: b?.id ?? "" };
+  });
+  const [aId, setAId] = useState(pair.a);
+  const [bId, setBId] = useState(pair.b);
+
+  const a = withItems.find((v) => v.id === aId);
+  const b = withItems.find((v) => v.id === bId);
+
+  // The saved blocked-pair keys for the current A×B item space (the baseline to diff against).
+  const saved = useMemo(() => {
+    if (!a || !b) return new Set<string>();
+    const inA = new Set(a.items.map((i) => i.id));
+    const inB = new Set(b.items.map((i) => i.id));
+    const s = new Set<string>();
+    for (const r of restrictions) {
+      const spans = (inA.has(r.itemLo) && inB.has(r.itemHi)) || (inB.has(r.itemLo) && inA.has(r.itemHi));
+      if (spans) s.add(pairKey(r.itemLo, r.itemHi));
+    }
+    return s;
+  }, [a, b, restrictions]);
+
+  const [blocked, setBlocked] = useState<Set<string>>(saved);
+  const [shownPair, setShownPair] = useState(`${aId}|${bId}`);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // Crosshair: the row/column item ids under the cursor, so it's easy to trace a cell back to its
+  // Crown × Drive headers.
+  const [hover, setHover] = useState<{ r: string | null; c: string | null }>({ r: null, c: null });
+
+  // Reseed the working set from `saved` whenever the chosen pair changes (or data reloads).
+  if (shownPair !== `${aId}|${bId}`) {
+    setShownPair(`${aId}|${bId}`);
+    setBlocked(saved);
+  }
+
+  const dirty = blocked.size !== saved.size || [...blocked].some((k) => !saved.has(k));
+
+  const toggle = (itemA: string, itemB: string) =>
+    setBlocked((prev) => {
+      const next = new Set(prev);
+      const k = pairKey(itemA, itemB);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
+  const save = async () => {
+    if (!a || !b) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      // Reconstruct [aItem, bItem] tuples from the blocked keys (each spans one A and one B item).
+      const aIds = new Set(a.items.map((i) => i.id));
+      const blockedPairs: [string, string][] = [];
+      for (const k of blocked) {
+        const [x, y] = k.split("|");
+        blockedPairs.push(aIds.has(x) ? [x, y] : [y, x]);
+      }
+      await call("POST", { entity: "restriction", variationA: a.id, variationB: b.id, blockedPairs });
+      router.refresh();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (withItems.length < 2) {
+    return <Card className="px-5 py-6 text-center text-sm text-muted">Add at least two variations with items to set compatibility rules.</Card>;
+  }
+
+  const options = (exclude: string) =>
+    withItems.filter((v) => v.id !== exclude).map((v) => (
+      <option key={v.id} value={v.id}>{v.name}</option>
+    ));
+
+  return (
+    <Card className="space-y-4 px-5 py-4">
+      <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+        <select value={aId} onChange={(e) => setAId(e.target.value)} className={cx(INPUT, "w-40")}>{options(bId)}</select>
+        <span className="text-muted">×</span>
+        <select value={bId} onChange={(e) => setBId(e.target.value)} className={cx(INPUT, "w-40")}>{options(aId)}</select>
+        <span className="ml-2 text-[11px] text-muted">Click a cell to toggle — <span className="text-emerald-600">✓ compatible</span> / <span className="text-red-500">✕ blocked</span></span>
+      </div>
+
+      {a && b && (
+        <div className="overflow-x-auto">
+          {/* border-spacing must be 0: a non-zero horizontal spacing makes the sticky first column
+              jump by that amount at the scroll boundary. Inter-cell gaps come from cell padding. */}
+          <table className="border-separate [border-spacing:0] text-[12px]" onMouseLeave={() => setHover({ r: null, c: null })}>
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-10 bg-surface" />
+                {b.items.map((bi) => {
+                  const colOn = hover.c === bi.id;
+                  return (
+                    <th key={bi.id} className="px-1 pb-1 align-bottom font-normal">
+                      <div className={cx("mx-auto flex w-16 flex-col items-center gap-1 rounded-lg px-1 py-1 transition-colors", colOn && "bg-ink/[0.07]")}>
+                        {bi.image && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={bi.image} alt="" className={cx("size-8 rounded-md border object-cover transition-colors", colOn ? "border-ink" : "border-line")} />
+                        )}
+                        {/* Name area keeps a constant 2-line height so the header never grows; the
+                            full name floats in an absolute overlay on hover (no layout shift). */}
+                        <div className="relative flex min-h-[26px] w-full items-start justify-center">
+                          <span className={cx("line-clamp-2 text-center text-[10.5px] leading-tight transition-colors", colOn ? "text-ink" : "text-muted")}>{bi.name}</span>
+                          {colOn && (
+                            <span className="absolute -top-1 left-1/2 z-30 w-max max-w-[150px] -translate-x-1/2 whitespace-normal break-words rounded-md border border-line bg-surface px-1.5 py-1 text-center text-[10.5px] leading-tight text-ink shadow-md">
+                              {bi.name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {a.items.map((ai) => {
+                const rowOn = hover.r === ai.id;
+                return (
+                  <tr key={ai.id}>
+                    <th className="sticky left-0 z-10 bg-surface pr-2 text-right font-normal">
+                      <div className={cx("flex items-center justify-end gap-1.5 rounded-lg py-1 pl-2 pr-1 transition-colors", rowOn && "bg-ink/[0.07]")}>
+                        <span className="line-clamp-2 w-[120px] text-[11px] leading-tight text-ink">{ai.name}</span>
+                        {ai.image && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={ai.image} alt="" className={cx("size-8 shrink-0 rounded-md border object-cover transition-colors", rowOn ? "border-ink" : "border-line")} />
+                        )}
+                      </div>
+                    </th>
+                    {b.items.map((bi) => {
+                      const isBlocked = blocked.has(pairKey(ai.id, bi.id));
+                      return (
+                        <td key={bi.id} className="p-0.5 text-center">
+                          <button
+                            type="button"
+                            onClick={() => toggle(ai.id, bi.id)}
+                            onMouseEnter={() => setHover({ r: ai.id, c: bi.id })}
+                            title={isBlocked ? "Blocked — click to allow" : "Compatible — click to block"}
+                            className={cx(
+                              "mx-auto flex size-9 items-center justify-center rounded-md border text-sm font-semibold transition-colors",
+                              isBlocked
+                                ? "border-red-300 bg-red-50 text-red-500 hover:bg-red-100"
+                                : "border-line bg-[#f6f8f6] text-emerald-600 hover:border-emerald-300"
+                            )}
+                          >
+                            {isBlocked ? "✕" : "✓"}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Button variant="primary" busy={busy} disabled={!dirty} className="py-1 text-[12px]" onClick={save}>Save compatibility</Button>
+        {err && <span className="text-[11px] text-red-500">{err}</span>}
+      </div>
+    </Card>
   );
 }

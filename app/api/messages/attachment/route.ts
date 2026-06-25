@@ -1,7 +1,22 @@
 import { NextResponse } from "next/server";
 import { admin } from "@/lib/supabase/admin";
 import { getCurrentUserId, isAdmin, userClient } from "@/lib/auth/user";
-import { CHAT_BUCKET, getOrCreateConversationForRetailer, sendAttachmentMessage } from "@/lib/db";
+import {
+  CHAT_BUCKET,
+  getOrCreateConversationForRetailer,
+  getQuoteRef,
+  sendAttachmentMessage,
+  type QuoteTag,
+} from "@/lib/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** Same authoritative quote-tag resolution as the text-send route (id trusted, ref looked up). */
+async function resolveQuoteTag(quoteId: unknown, sb: SupabaseClient): Promise<QuoteTag | null> {
+  const id = Number(quoteId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const ref = await getQuoteRef(id, sb);
+  return ref ? { id, ref } : null;
+}
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const DOC_TYPES = [
@@ -54,13 +69,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
+    const tag = await resolveQuoteTag(form.get("quoteId"), sb);
     const message = await sendAttachmentMessage(
       conversationId,
       uid,
       adminUser ? "admin" : "retailer",
       { path, name: file.name, type: file.type, size: file.size },
       caption,
-      sb
+      sb,
+      tag
     );
     return NextResponse.json({ conversationId, message });
   } catch (err) {

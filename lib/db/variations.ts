@@ -15,6 +15,11 @@ export type VariationSelection = {
   itemLabel: string;
   price: number;
 };
+/** A pair of variation items that cannot be selected together (symmetric; itemLo < itemHi). */
+export type VariationRestriction = { itemLo: string; itemHi: string };
+
+/** Canonical (lo, hi) ordering for a symmetric item pair. */
+const pairKey = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
 
 const TYPE_COLS = "id, name, pairGroup:pair_group, sort";
 const ITEM_COLS = "id, variationId:variation_id, name, price, sort, image:image_url";
@@ -67,6 +72,62 @@ export async function getProductDefaultsMap(sb: SupabaseClient = admin()): Promi
     (map[row.model_id] ??= []).push(row.item_id);
   }
   return map;
+}
+
+/** All item↔item incompatibility pairs. Best-effort: [] if the table isn't present yet (0018). */
+export async function getRestrictions(sb: SupabaseClient = admin()): Promise<VariationRestriction[]> {
+  const { data, error } = await sb.from("variation_item_restrictions").select("item_lo, item_hi");
+  if (error) return [];
+  return ((data ?? []) as { item_lo: string; item_hi: string }[]).map((r) => ({ itemLo: r.item_lo, itemHi: r.item_hi }));
+}
+
+/**
+ * Replace all restrictions between two variations with `blockedPairs` (each an [itemA, itemB]).
+ * Delete-all-then-insert, scoped to the A×B item space so other variation pairs are untouched.
+ * Pairs are canonicalised to (item_lo < item_hi); self-pairs and unknown items are dropped.
+ */
+export async function setVariationPairRestrictions(
+  variationA: string,
+  variationB: string,
+  blockedPairs: [string, string][],
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  if (!variationA || !variationB || variationA === variationB) throw new Error("Pick two different variations");
+  const { data: itemRows, error: itErr } = await sb
+    .from("variation_items")
+    .select("id, variation_id")
+    .in("variation_id", [variationA, variationB]);
+  if (itErr) throw itErr;
+  const itemsA = new Set<string>();
+  const itemsB = new Set<string>();
+  for (const r of (itemRows ?? []) as { id: string; variation_id: string }[]) {
+    if (r.variation_id === variationA) itemsA.add(r.id);
+    else if (r.variation_id === variationB) itemsB.add(r.id);
+  }
+  // Clear existing rows that pair an A-item with a B-item (in either column orientation).
+  const aIds = [...itemsA];
+  const bIds = [...itemsB];
+  if (aIds.length && bIds.length) {
+    const del1 = await sb.from("variation_item_restrictions").delete().in("item_lo", aIds).in("item_hi", bIds);
+    if (del1.error) throw del1.error;
+    const del2 = await sb.from("variation_item_restrictions").delete().in("item_lo", bIds).in("item_hi", aIds);
+    if (del2.error) throw del2.error;
+  }
+  // Insert the new set — only pairs that genuinely span the A and B item spaces.
+  const seen = new Set<string>();
+  const rows: { item_lo: string; item_hi: string }[] = [];
+  for (const [x, y] of blockedPairs) {
+    const spansAB = (itemsA.has(x) && itemsB.has(y)) || (itemsB.has(x) && itemsA.has(y));
+    if (!spansAB || x === y) continue;
+    const [lo, hi] = pairKey(x, y);
+    const k = `${lo}|${hi}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    rows.push({ item_lo: lo, item_hi: hi });
+  }
+  if (rows.length === 0) return;
+  const { error } = await sb.from("variation_item_restrictions").insert(rows);
+  if (error) throw error;
 }
 
 /** The variation types (with only the items available for `modelId`) — for the quote-time selector. */
@@ -209,6 +270,23 @@ export async function resolveVariationSelections(
     const chosenInGroup = types.filter((t) => chosenTypeIds.has(t.id));
     if (chosenInGroup.length > 0 && chosenInGroup.length < types.length) {
       throw new Error(`${types.map((t) => t.name).join(" + ")} must be selected together`);
+    }
+  }
+
+  // Compatibility: reject any chosen pair that admins marked incompatible. The client greys
+  // these out, but it's never trusted — this is the authoritative gate.
+  if (chosen.length > 1) {
+    const restrictions = await getRestrictions(sb);
+    const blocked = new Set(restrictions.map((r) => `${r.itemLo}|${r.itemHi}`));
+    for (let i = 0; i < chosen.length; i++) {
+      for (let j = i + 1; j < chosen.length; j++) {
+        const [lo, hi] = pairKey(chosen[i], chosen[j]);
+        if (blocked.has(`${lo}|${hi}`)) {
+          const a = itemIndex.get(chosen[i])?.item.name ?? "option";
+          const b = itemIndex.get(chosen[j])?.item.name ?? "option";
+          throw new Error(`${a} and ${b} can't be combined`);
+        }
+      }
     }
   }
   return selections;

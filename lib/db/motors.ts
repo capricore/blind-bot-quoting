@@ -39,6 +39,20 @@ export async function clearStock(modelId: string, sb: SupabaseClient = admin()):
 }
 
 /**
+ * Set/clear many models' stock at once (stock null = clear to untracked). Used by the admin
+ * "Save all" action so a screen of edits is one request, not one per model.
+ */
+export async function setStockBatch(
+  entries: { modelId: string; stock: number | null }[],
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  for (const { modelId, stock } of entries) {
+    if (stock === null) await clearStock(modelId, sb);
+    else await setStock(modelId, stock, sb);
+  }
+}
+
+/**
  * Deduct stock for the motor lines of a submitted pre-order. Untracked models are skipped.
  * If any tracked model is short (or lost a race), nothing stays deducted — already-applied
  * decrements are rolled back — and it throws a message naming the short models.
@@ -206,6 +220,20 @@ export async function setRetailerPrice(
   sb: SupabaseClient = admin()
 ): Promise<void> {
   await setPrice(modelId, retailerId, price, sb);
+}
+
+/**
+ * Set many prices at once — default tier (retailerId null) or one retailer's overrides.
+ * Used by the admin "Save all" action so a row of edits is one request, not one per model.
+ */
+export async function setPricesBatch(
+  retailerId: string | null,
+  prices: { modelId: string; price: number }[],
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  for (const { modelId, price } of prices) {
+    await setPrice(modelId, retailerId, price, sb);
+  }
 }
 
 /** Reset a retailer to default for one model (delete the override) or all models. */

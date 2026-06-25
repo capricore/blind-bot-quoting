@@ -16,6 +16,7 @@ import {
   getModelTagMap,
   getProductDefaultsMap,
   getProductVariationMap,
+  getRestrictions,
   getRetailerDiscount,
   getRetailerOverrideMap,
   getVariations,
@@ -38,7 +39,7 @@ async function motors() {
   const cat = await loadCatalog();
   return cat.categories
     .filter((c) => c.orderable)
-    .flatMap((c) => cat.modelsIn(c.id).map((m) => ({ id: m.id, name: m.name, sku: m.sku, category: c.name })));
+    .flatMap((c) => cat.modelsIn(c.id).map((m) => ({ id: m.id, name: m.name, sku: m.sku, category: c.name, moq: m.moq ?? 0 })));
 }
 
 /** Every accessory catalog model with its category — variations can apply to any product. */
@@ -112,7 +113,7 @@ async function InventoryTab() {
 
 async function TagsTab() {
   const [attributes, tagMap] = await Promise.all([getAttributes(), getModelTagMap()]);
-  const models: TaggableModel[] = (await motors()).map((m) => ({ id: m.id, name: m.name, sku: m.sku, categoryName: m.category }));
+  const models: TaggableModel[] = (await motors()).map((m) => ({ id: m.id, name: m.name, sku: m.sku, categoryName: m.category, moq: m.moq }));
   return (
     <div className="space-y-8">
       <section>
@@ -128,13 +129,14 @@ async function TagsTab() {
 }
 
 async function VariationsTab() {
-  const [variations, assignment, defaults, products] = await Promise.all([
+  const [variations, assignment, defaults, products, restrictions] = await Promise.all([
     getVariations(),
     getProductVariationMap(),
     getProductDefaultsMap(),
     allProducts(),
+    getRestrictions(),
   ]);
-  return <VariationsAdmin variations={variations} products={products} assignment={assignment} defaults={defaults} />;
+  return <VariationsAdmin variations={variations} products={products} assignment={assignment} defaults={defaults} restrictions={restrictions} />;
 }
 
 async function PricingTab({ retailerParam }: { retailerParam?: string }) {
@@ -214,7 +216,7 @@ async function PricingTab({ retailerParam }: { retailerParam?: string }) {
       {target.kind === "retailer" && (
         <RetailerDiscountEditor retailerId={target.retailerId} label={target.label} initialPct={discountPct} />
       )}
-      <MotorPriceEditor target={target} rows={rows} />
+      <MotorPriceEditor key={retailerParam} target={target} rows={rows} />
     </div>
   );
 }

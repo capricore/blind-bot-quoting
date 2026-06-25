@@ -6,8 +6,20 @@ import {
   getConversationForRetailer,
   getMessages,
   getOrCreateConversationForRetailer,
+  getQuoteRef,
   sendMessage,
+  type QuoteTag,
 } from "@/lib/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** Resolve the authoritative quote tag for a send: trust the id, never the client's ref,
+ *  and only tag a quote the caller can actually see (RLS via `sb`). */
+async function resolveQuoteTag(quoteId: unknown, sb: SupabaseClient): Promise<QuoteTag | null> {
+  const id = Number(quoteId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const ref = await getQuoteRef(id, sb);
+  return ref ? { id, ref } : null;
+}
 
 const MAX_LEN = 4000;
 
@@ -49,12 +61,14 @@ export async function POST(req: Request) {
       if (typeof b.conversationId !== "string") {
         return NextResponse.json({ error: "conversationId required" }, { status: 400 });
       }
-      const message = await sendMessage(b.conversationId, uid, "admin", body, admin());
+      const tag = await resolveQuoteTag(b.quoteId, admin());
+      const message = await sendMessage(b.conversationId, uid, "admin", body, admin(), tag);
       return NextResponse.json({ conversationId: b.conversationId, message });
     }
     const sb = await userClient();
     const conv = await getOrCreateConversationForRetailer(uid, sb);
-    const message = await sendMessage(conv.id, uid, "retailer", body, sb);
+    const tag = await resolveQuoteTag(b.quoteId, sb);
+    const message = await sendMessage(conv.id, uid, "retailer", body, sb, tag);
     return NextResponse.json({ conversationId: conv.id, message });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });

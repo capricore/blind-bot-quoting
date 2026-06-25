@@ -75,6 +75,11 @@ export async function POST(req: Request) {
           { status: 409 }
         );
       }
+      // Minimum order quantity — the client clamps the stepper, but never trust it.
+      const moq = accessory.moq ?? 0;
+      if (moq > 0 && qty < moq) {
+        return NextResponse.json({ error: `Minimum order for this motor is ${moq}` }, { status: 409 });
+      }
       // Resolve the chosen variation items (validates availability + pairing; snapshots labels/prices).
       const variations = await resolveVariationSelections(
         accessory.id,

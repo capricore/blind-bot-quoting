@@ -197,6 +197,16 @@ export function Button({
   );
 }
 
+/** Small inline loading spinner in the current text color — wrap in a `text-*` class to tint. */
+export function Spinner({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cx("inline-block size-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent", className)}
+    />
+  );
+}
+
 export function EmptyState({
   title,
   description,

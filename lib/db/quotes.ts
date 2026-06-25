@@ -254,6 +254,13 @@ export async function getQuote(
   return { ...(q as unknown as QuoteRow), items: rows, total };
 }
 
+/** A quote's ref (e.g. "Q-2026-0009"), or null if it doesn't exist / isn't visible to `sb`.
+ *  Used to tag a chat message with the quote it's about (RLS via the caller's client). */
+export async function getQuoteRef(id: number, sb: SupabaseClient = admin()): Promise<string | null> {
+  const { data } = await sb.from("quotes").select("ref").eq("id", id).maybeSingle();
+  return (data as { ref: string } | null)?.ref ?? null;
+}
+
 /** For the quote detail page: the order a converted quote turned into, if any. */
 export async function getOrderRefByQuote(
   quoteId: number,

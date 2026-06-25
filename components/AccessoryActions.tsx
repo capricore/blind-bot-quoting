@@ -3,25 +3,32 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { stashPendingItem } from "@/lib/pending-item";
-import type { VariationType } from "@/lib/db";
+import type { VariationRestriction, VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
 import { Button, cx } from "./ui";
 
 /** Pick one item of a variation. Items with images render as visual cards (tap 🔍 to zoom);
- *  otherwise a text dropdown. `allowNone` adds a "None" choice (independent variations). */
+ *  otherwise a text dropdown. `allowNone` adds a "None" choice (independent variations).
+ *  `disabled` items are incompatible with the current selection elsewhere and can't be picked;
+ *  `disabledReason` maps an item id → the conflicting option's name, shown on hover. */
 function VariationPicker({
   type,
   value,
   onChange,
   allowNone,
   onZoom,
+  disabled,
+  disabledReason,
 }: {
   type: VariationType;
   value: string;
   onChange: (v: string) => void;
   allowNone: boolean;
   onZoom: (url: string) => void;
+  disabled: Set<string>;
+  disabledReason: Record<string, string>;
 }) {
+  const reason = (id: string) => (disabledReason[id] ? `Not compatible with ${disabledReason[id]}` : "Not compatible with your current selection");
   const hasImages = type.items.some((i) => i.image);
   if (!hasImages) {
     return (
@@ -31,27 +38,41 @@ function VariationPicker({
         className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-ink"
       >
         {allowNone && <option value="">— None —</option>}
-        {type.items.map((it) => (
-          <option key={it.id} value={it.id}>
-            {it.name}{it.price ? ` (+${usd(it.price)})` : ""}
-          </option>
-        ))}
+        {type.items.map((it) => {
+          const off = disabled.has(it.id);
+          return (
+            <option key={it.id} value={it.id} disabled={off}>
+              {it.name}{it.price ? ` (+${usd(it.price)})` : ""}{off ? " — unavailable with current selection" : ""}
+            </option>
+          );
+        })}
       </select>
     );
   }
-  const cardCx = (sel: boolean) =>
-    cx("relative w-24 shrink-0 rounded-xl border p-1.5 text-left transition-colors", sel ? "border-ink ring-2 ring-ink/15" : "border-line hover:border-ink");
+  const cardCx = (sel: boolean, off: boolean) =>
+    cx(
+      "relative w-24 shrink-0 rounded-xl border p-1.5 text-left transition-colors",
+      off ? "cursor-not-allowed border-line opacity-40" : sel ? "border-ink ring-2 ring-ink/15" : "border-line hover:border-ink"
+    );
   return (
     <div className="flex flex-wrap gap-2">
       {allowNone && (
-        <button type="button" onClick={() => onChange("")} className={cx(cardCx(value === ""), "flex h-[104px] items-center justify-center text-[12px] text-muted")}>
+        <button type="button" onClick={() => onChange("")} className={cx(cardCx(value === "", false), "flex h-[104px] items-center justify-center text-[12px] text-muted")}>
           None
         </button>
       )}
       {type.items.map((it) => {
         const sel = value === it.id;
+        const off = disabled.has(it.id);
         return (
-          <button key={it.id} type="button" onClick={() => onChange(it.id)} className={cardCx(sel)}>
+          <button
+            key={it.id}
+            type="button"
+            disabled={off}
+            onClick={() => !off && onChange(it.id)}
+            title={off ? reason(it.id) : undefined}
+            className={cardCx(sel, off)}
+          >
             <div className="relative">
               {it.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -59,7 +80,7 @@ function VariationPicker({
               ) : (
                 <div className="h-16 w-full rounded-lg bg-[#f1efe9]" />
               )}
-              {it.image && (
+              {it.image && !off && (
                 <span
                   role="button"
                   onClick={(e) => { e.stopPropagation(); onZoom(it.image!); }}
@@ -87,6 +108,8 @@ export function AddAccessoryButton({
   variations = [],
   availableItemIds = [],
   defaultItemIds = [],
+  restrictions = [],
+  minOrder = 0,
 }: {
   modelId: string;
   quoteId?: number;
@@ -97,9 +120,14 @@ export function AddAccessoryButton({
   availableItemIds?: string[];
   /** variation item ids pre-selected by default */
   defaultItemIds?: string[];
+  /** item↔item incompatibility pairs (selecting one greys out the other) */
+  restrictions?: VariationRestriction[];
+  /** minimum order quantity (0 = none); the qty stepper can't go below it */
+  minOrder?: number;
 }) {
   const router = useRouter();
-  const [qty, setQty] = useState(1);
+  const minQty = Math.max(1, minOrder);
+  const [qty, setQty] = useState(minQty);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState(false);
@@ -136,6 +164,60 @@ export function AddAccessoryButton({
     for (const t of avail) if (t.pairGroup && t.items.some((i) => defaultItemIds.includes(i.id))) on[t.pairGroup] = true;
     return on;
   });
+
+  // Bidirectional incompatibility map: item id → set of item ids it can't be combined with.
+  const blocked = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const add = (a: string, b: string) => (m.get(a) ?? m.set(a, new Set()).get(a)!).add(b);
+    for (const r of restrictions) { add(r.itemLo, r.itemHi); add(r.itemHi, r.itemLo); }
+    return m;
+  }, [restrictions]);
+  const itemName = useMemo(() => {
+    const n: Record<string, string> = {};
+    for (const t of avail) for (const i of t.items) n[i.id] = i.name;
+    return n;
+  }, [avail]);
+
+  // A type's pick only "counts" for conflicts when it's actually in play (independent, or its
+  // paired group is toggled on). This is also what's collected at submit time.
+  const activePick = (t: VariationType): string => {
+    if (t.pairGroup && !groupOn[t.pairGroup]) return "";
+    return pick[t.id] ?? "";
+  };
+
+  // Items of `type` that conflict with another type's active pick → greyed out, with the
+  // conflicting option's name for the tooltip.
+  const disabledFor = (type: VariationType): { ids: Set<string>; reason: Record<string, string> } => {
+    const ids = new Set<string>();
+    const reason: Record<string, string> = {};
+    for (const other of avail) {
+      if (other.id === type.id) continue;
+      const chosen = activePick(other);
+      if (!chosen) continue;
+      const conflicts = blocked.get(chosen);
+      if (!conflicts) continue;
+      for (const it of type.items) if (conflicts.has(it.id)) { ids.add(it.id); reason[it.id] = itemName[chosen] ?? "your current selection"; }
+    }
+    return { ids, reason };
+  };
+
+  // Pick an item, then drop any now-incompatible pick in another type so the user is never
+  // wedged into an invalid pair (the conflicting side clears and re-opens for a fresh choice).
+  const choose = (typeId: string, itemId: string) =>
+    setPick((prev) => {
+      const next = { ...prev, [typeId]: itemId };
+      if (itemId) {
+        const conflicts = blocked.get(itemId);
+        if (conflicts) {
+          for (const other of avail) {
+            if (other.id === typeId) continue;
+            if (other.pairGroup && !groupOn[other.pairGroup]) continue;
+            if (next[other.id] && conflicts.has(next[other.id])) next[other.id] = "";
+          }
+        }
+      }
+      return next;
+    });
 
   const tracked = stock !== null && stock !== undefined;
   const outOfStock = tracked && stock === 0;
@@ -202,7 +284,7 @@ export function AddAccessoryButton({
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2">
         <div className="flex items-center rounded-lg border border-line">
-          <button onClick={() => setQty((q) => Math.max(1, q - 1))} aria-label="Decrease quantity" className="px-2.5 py-1 text-ink-soft hover:text-ink">
+          <button onClick={() => setQty((q) => Math.max(minQty, q - 1))} disabled={qty <= minQty} aria-label="Decrease quantity" className="px-2.5 py-1 text-ink-soft hover:text-ink disabled:opacity-30">
             −
           </button>
           <span className="w-7 text-center text-sm font-semibold tabular-nums">{qty}</span>
@@ -242,12 +324,15 @@ export function AddAccessoryButton({
                     </label>
                     {on && (
                       <div className="mt-3 space-y-3">
-                        {group.map((t) => (
-                          <div key={t.id}>
-                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
-                            <VariationPicker type={t} value={pick[t.id] ?? ""} onChange={(v) => setPick((p) => ({ ...p, [t.id]: v }))} allowNone={false} onZoom={setZoom} />
-                          </div>
-                        ))}
+                        {group.map((t) => {
+                          const d = disabledFor(t);
+                          return (
+                            <div key={t.id}>
+                              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
+                              <VariationPicker type={t} value={pick[t.id] ?? ""} onChange={(v) => choose(t.id, v)} allowNone={false} onZoom={setZoom} disabled={d.ids} disabledReason={d.reason} />
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -255,12 +340,15 @@ export function AddAccessoryButton({
               })}
 
               {/* independent variations — each optional */}
-              {independents.map((t) => (
-                <div key={t.id}>
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
-                  <VariationPicker type={t} value={pick[t.id] ?? ""} onChange={(v) => setPick((p) => ({ ...p, [t.id]: v }))} allowNone onZoom={setZoom} />
-                </div>
-              ))}
+              {independents.map((t) => {
+                const d = disabledFor(t);
+                return (
+                  <div key={t.id}>
+                    <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
+                    <VariationPicker type={t} value={pick[t.id] ?? ""} onChange={(v) => choose(t.id, v)} allowNone onZoom={setZoom} disabled={d.ids} disabledReason={d.reason} />
+                  </div>
+                );
+              })}
             </div>
 
             {error && <p className="mt-2 text-xs text-red-500">{error}</p>}

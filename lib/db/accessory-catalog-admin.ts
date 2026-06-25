@@ -78,7 +78,7 @@ export async function loadCatalogAdmin(sb: SupabaseClient = admin()): Promise<Ad
     .order("sort");
   const { data: mods } = await sb
     .from("accessory_models")
-    .select("id, categoryId:category_id, sku, name, description, price:default_price, imageUrl:image_url, active, sort")
+    .select("id, categoryId:category_id, sku, name, description, price:default_price, imageUrl:image_url, moq, active, sort")
     .order("sort");
   return {
     brands: (brands ?? []) as unknown as AccessoryBrand[],
@@ -201,7 +201,7 @@ export async function updateModel(
   id: string,
   patch: {
     categoryId?: string; sku?: string; name?: string; description?: string;
-    price?: number | null; image?: string; active?: boolean; sort?: number;
+    price?: number | null; image?: string; active?: boolean; sort?: number; moq?: number;
   },
   sb: SupabaseClient = admin()
 ): Promise<void> {
@@ -214,6 +214,7 @@ export async function updateModel(
   if (patch.image !== undefined) cols.image_url = patch.image.trim() || null;
   if (patch.active !== undefined) cols.active = patch.active;
   if (patch.sort !== undefined) cols.sort = patch.sort;
+  if (patch.moq !== undefined) cols.moq = Math.max(0, Math.round(patch.moq));
   if (Object.keys(cols).length === 0) return;
   const { error } = await sb.from("accessory_models").update(cols).eq("id", id);
   if (error) throw error;

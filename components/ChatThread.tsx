@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMessage, ChatRole } from "@/lib/db";
+import type { ChatMessage, ChatRole, QuoteTag } from "@/lib/db";
 import { BRAND } from "@/lib/brand";
 import { Button, cx } from "./ui";
 
@@ -40,6 +41,27 @@ function dayLabel(iso: string): string {
   });
 }
 
+/** The "Re: Q-…" chip shown on a message tagged with a quote (links to it when it still exists). */
+function QuoteChip({ quoteId, quoteRef, mine }: { quoteId: number | null; quoteRef: string; mine: boolean }) {
+  const cls = cx(
+    "inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+    mine ? "border-ink/15 bg-ink/5 text-ink-soft" : "border-line bg-[#f1efe9] text-ink-soft"
+  );
+  const inner = (
+    <>
+      <span aria-hidden>📄</span>
+      <span className="truncate">Re: {quoteRef}</span>
+    </>
+  );
+  return quoteId ? (
+    <Link href={`/quotes/${quoteId}`} className={cx(cls, "transition-colors hover:text-brass")}>
+      {inner}
+    </Link>
+  ) : (
+    <span className={cls}>{inner}</span>
+  );
+}
+
 function Avatar({ support, name, large = false }: { support: boolean; name: string; large?: boolean }) {
   // Literal size classes only — Tailwind can't see interpolated ones.
   const box = cx(
@@ -68,6 +90,8 @@ export function ChatThread({
   peerSupport = false,
   header,
   onActivity,
+  quoteContext = null,
+  fill = false,
 }: {
   role: ChatRole;
   conversationId: string | null;
@@ -77,6 +101,12 @@ export function ChatThread({
   peerSupport?: boolean;
   header?: React.ReactNode;
   onActivity?: () => void;
+  // When set, messages sent from this thread are tagged with the quote, and a "Re: …" hint
+  // shows above the composer. (Used by the per-quote chat bubble.)
+  quoteContext?: QuoteTag | null;
+  // Fill the parent container's height instead of the standalone fixed/viewport sizing —
+  // for embedding inside a popup/panel that supplies its own frame.
+  fill?: boolean;
 }) {
   const [convId, setConvId] = useState(initialConvId);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -95,7 +125,15 @@ export function ChatThread({
 
   const getUrl = role === "admin" && convId ? `/api/messages?conversationId=${convId}` : "/api/messages";
 
-  const all: UiMessage[] = [...messages, ...pending];
+  // Dedupe by id: an optimistic send appends the real message, but a 5s poll may have already
+  // pulled it into `messages` — without this the list can briefly hold two rows with one id.
+  const seenIds = new Set<string>();
+  const all: UiMessage[] = [];
+  for (const m of [...messages, ...pending]) {
+    if (seenIds.has(m.id)) continue;
+    seenIds.add(m.id);
+    all.push(m);
+  }
   const lastMineId = [...all].reverse().find((m) => m.senderRole === role)?.id ?? null;
 
   const markRead = useCallback(async () => {
@@ -181,11 +219,15 @@ export function ChatThread({
       const fd = new FormData();
       fd.append("file", file);
       if (role === "admin" && convId) fd.append("conversationId", convId);
+      if (quoteContext) fd.append("quoteId", String(quoteContext.id));
       const r = await fetch("/api/messages/attachment", { method: "POST", body: fd });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? "Upload failed");
       if (data.conversationId && !convId) setConvId(data.conversationId);
-      if (data.message) setMessages((m) => [...m, data.message as ChatMessage]);
+      if (data.message) {
+        const msg = data.message as ChatMessage;
+        setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
+      }
       setPending((p) => p.filter((x) => x.id !== tmpId));
       onActivity?.();
     } catch (e) {
@@ -213,12 +255,19 @@ export function ChatThread({
       const r = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(role === "admin" ? { conversationId: convId, body } : { body }),
+        body: JSON.stringify({
+          ...(role === "admin" ? { conversationId: convId } : {}),
+          body,
+          ...(quoteContext ? { quoteId: quoteContext.id } : {}),
+        }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? "Failed to send");
       if (data.conversationId && !convId) setConvId(data.conversationId);
-      if (data.message) setMessages((m) => [...m, data.message as ChatMessage]);
+      if (data.message) {
+        const msg = data.message as ChatMessage;
+        setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
+      }
       setPending((p) => p.filter((x) => x.id !== tmpId));
       onActivity?.();
     } catch (e) {
@@ -239,7 +288,14 @@ export function ChatThread({
   }
 
   return (
-    <div className="flex h-[calc(100dvh-12rem)] min-h-[24rem] flex-col overflow-hidden rounded-2xl border border-line bg-surface md:h-[68vh]">
+    <div
+      className={cx(
+        "flex flex-col overflow-hidden bg-surface",
+        fill
+          ? "h-full min-h-0"
+          : "h-[calc(100dvh-12rem)] min-h-[24rem] rounded-2xl border border-line md:h-[68vh]"
+      )}
+    >
       {header && <div className="shrink-0 border-b border-line px-4 py-3">{header}</div>}
 
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-4">
@@ -276,6 +332,8 @@ export function ChatThread({
                   ? "Read"
                   : "Sent"
                 : null;
+            // Show the "Re: Q-…" chip once per run of same-quote bubbles, not on every line.
+            const showChip = !!m.quoteRef && (!groupedWithPrev || prev?.quoteRef !== m.quoteRef);
 
             return (
               <div key={m.id}>
@@ -295,6 +353,7 @@ export function ChatThread({
                 >
                   {!mine && <div className="w-7 shrink-0">{groupEnd && <Avatar support={peerSupport} name={peerName} />}</div>}
                   <div className={cx("flex max-w-[78%] flex-col gap-1 sm:max-w-[70%]", mine ? "items-end" : "items-start")}>
+                    {showChip && <QuoteChip quoteId={m.quoteId ?? null} quoteRef={m.quoteRef!} mine={mine} />}
                     {m.body && (
                       <div
                         className={cx(
@@ -351,6 +410,14 @@ export function ChatThread({
       </div>
 
       <div className="relative shrink-0 border-t border-line bg-surface px-3 py-3">
+        {quoteContext && (
+          <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted">
+            <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-line bg-[#f1efe9] px-2 py-0.5 font-medium text-ink-soft">
+              <span aria-hidden>📄</span> Re: {quoteContext.ref}
+            </span>
+            <span className="hidden sm:inline">linked to this quote</span>
+          </div>
+        )}
         {err && <p className="mb-2 text-[12px] text-red-500">{err}</p>}
 
         {showEmoji && (

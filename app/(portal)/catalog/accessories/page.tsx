@@ -13,6 +13,7 @@ import {
   getModelTagMap,
   getProductDefaultsMap,
   getProductVariationMap,
+  getRestrictions,
   getVariations,
   loadCatalog,
 } from "@/lib/db";
@@ -30,7 +31,7 @@ export default async function AccessoriesPage({
   const q = quoteId ? `&quote=${quoteId}` : "";
 
   const userId = await getCurrentUserId();
-  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap, frequentRaw] = await Promise.all([
+  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap, restrictions, frequentRaw] = await Promise.all([
     loadCatalog(),
     getAttributes(),
     getModelTagMap(),
@@ -40,6 +41,7 @@ export default async function AccessoriesPage({
     getProductVariationMap(), // model_id → available variation item ids
     getModelFilesMap(), // model_id → spec/cert attachments
     getProductDefaultsMap(), // model_id → default variation item ids
+    getRestrictions(), // item↔item incompatibility pairs (grey-out in the options modal)
     userId ? getFrequentPartIds(userId, 12) : Promise.resolve([]), // over-fetch; stale ids filtered below
   ]);
 
@@ -62,6 +64,7 @@ export default async function AccessoriesPage({
       stock: modelId in inventory ? inventory[modelId] : null,
       availableItemIds: variationMap[modelId] ?? [],
       defaultItemIds: defaultsMap[modelId] ?? [],
+      moq: model.moq ?? 0,
     }];
   }).slice(0, 3);
   const categories = catalog.categories;
@@ -71,25 +74,33 @@ export default async function AccessoriesPage({
   const valueLabel: Record<string, string> = {};
   for (const a of attributes) for (const v of a.values) valueLabel[v.id] = v.label;
 
-  // active filters from ?t_<attrId>=<valueId>
+  // active filters from ?t_<attrId>=<valueId>, plus the ?moq=1 "minimum-order only" toggle
   const selected: Record<string, string> = {};
   for (const a of attributes) {
     const v = sp[`t_${a.id}`];
     if (typeof v === "string" && v) selected[a.id] = v;
   }
-  const filtering = Object.keys(selected).length > 0;
+  // minimum-order-quantity facet: "1" = only products with a minimum, "0" = only products without
+  const moq = sp.moq === "1" ? "1" : sp.moq === "0" ? "0" : "";
+  const filtering = Object.keys(selected).length > 0 || moq !== "";
 
   // When filtering, search ALL orderable motors across categories; otherwise browse the active category.
   const baseModels = filtering
     ? categories.filter((c) => c.orderable).flatMap((c) => catalog.modelsIn(c.id).map((m) => ({ model: m, cat: c })))
     : catalog.modelsIn(activeCat.id).map((m) => ({ model: m, cat: activeCat }));
 
-  const models = filtering
+  const filtered = filtering
     ? baseModels.filter(({ model }) => {
         const tags = new Set(tagMap[model.id] ?? []);
+        const hasMoq = (model.moq ?? 0) > 0;
+        if (moq === "1" && !hasMoq) return false;
+        if (moq === "0" && hasMoq) return false;
         return Object.values(selected).every((valueId) => tags.has(valueId));
       })
     : baseModels;
+  // Products with a minimum-order requirement sink to the bottom (stable sort keeps the rest in
+  // their catalog order).
+  const models = [...filtered].sort((a, b) => Number((a.model.moq ?? 0) > 0) - Number((b.model.moq ?? 0) > 0));
 
   return (
     <div>
@@ -108,9 +119,9 @@ export default async function AccessoriesPage({
         </div>
       )}
 
-      <FrequentParts parts={frequentParts} quoteId={quoteId} variations={variations} />
+      <FrequentParts parts={frequentParts} quoteId={quoteId} variations={variations} restrictions={restrictions} />
 
-      <AccessoryFilters attributes={attributes} selected={selected} cat={cat} quote={quoteId} />
+      <AccessoryFilters attributes={attributes} selected={selected} moq={moq} cat={cat} quote={quoteId} />
 
       {/* 3-level master-detail: Brand → Category → Models */}
       <div className="grid gap-4 lg:grid-cols-[200px_240px_1fr]">
@@ -179,14 +190,33 @@ export default async function AccessoriesPage({
                   const tags = tagMap[model.id] ?? [];
                   const price = effectivePrices[model.id] ?? model.price;
                   const stock = model.id in inventory ? inventory[model.id] : null;
+                  const moq = model.moq ?? 0;
+                  const img = catalog.image(model);
                   return (
-                    <li key={model.id} className="flex items-center gap-4 px-4 py-3.5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={catalog.image(model)}
-                        alt={model.name}
-                        className="size-14 shrink-0 rounded-xl bg-[#0e0e10] object-contain p-1.5"
-                      />
+                    <li key={model.id} className="relative flex items-center gap-4 px-4 py-3.5">
+                      {moq > 0 && (
+                        <span className="absolute right-3 top-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">
+                          Minimum order quantity {moq}
+                          <span className="group/moq relative flex size-3.5 cursor-help items-center justify-center rounded-full bg-amber-200 text-[9px] font-bold text-amber-900">
+                            ?
+                            <span className="pointer-events-none absolute right-full top-1/2 z-20 mr-2 hidden w-max max-w-[220px] -translate-y-1/2 rounded-md bg-ink px-2.5 py-1.5 text-[11px] font-normal leading-snug text-white shadow-lg group-hover/moq:block">
+                              Out of stock — a minimum of {moq} units must be ordered.
+                            </span>
+                          </span>
+                        </span>
+                      )}
+                      {img ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={img}
+                          alt={model.name}
+                          className="size-14 shrink-0 rounded-xl bg-[#0e0e10] object-contain p-1.5"
+                        />
+                      ) : (
+                        <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[#0e0e10] text-[10px] font-medium text-white/40">
+                          No image
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[14px] font-semibold text-ink">{model.name}</span>
@@ -239,6 +269,8 @@ export default async function AccessoriesPage({
                               variations={variations}
                               availableItemIds={variationMap[model.id] ?? []}
                               defaultItemIds={defaultsMap[model.id] ?? []}
+                              restrictions={restrictions}
+                              minOrder={moq}
                             />
                           ) : (
                             <span className="text-[11px] text-muted">Reference</span>

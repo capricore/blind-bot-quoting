@@ -20,7 +20,14 @@ export type ChatMessage = {
   body: string;
   createdAt: string;
   attachment?: ChatAttachment | null;
+  // The quote this message is "about" (sent from a quote's chat bubble). quoteRef is a
+  // snapshot so the "Re: Q-…" chip still renders after the quote is deleted (quoteId → null).
+  quoteId?: number | null;
+  quoteRef?: string | null;
 };
+
+/** The quote a message is tagged with — passed to the send helpers from a quote's chat. */
+export type QuoteTag = { id: number; ref: string };
 
 export type Conversation = {
   id: string;
@@ -44,6 +51,7 @@ const CONV_COLS =
   "lastSenderRole:last_sender_role, retailerLastReadAt:retailer_last_read_at, adminLastReadAt:admin_last_read_at";
 const MSG_COLS =
   "id, conversationId:conversation_id, senderId:sender_id, senderRole:sender_role, body, createdAt:created_at, " +
+  "quoteId:quote_id, quoteRef:quote_ref, " +
   "attachmentPath:attachment_path, attachmentName:attachment_name, attachmentType:attachment_type, attachmentSize:attachment_size";
 
 type RawMessage = Omit<ChatMessage, "attachment"> & {
@@ -151,13 +159,21 @@ export async function sendMessage(
   senderId: string,
   senderRole: ChatRole,
   body: string,
-  sb: SupabaseClient = admin()
+  sb: SupabaseClient = admin(),
+  quote: QuoteTag | null = null
 ): Promise<ChatMessage> {
   const text = body.trim();
   if (!text) throw new Error("Message is empty");
   const { data, error } = await sb
     .from("messages")
-    .insert({ conversation_id: conversationId, sender_id: senderId, sender_role: senderRole, body: text })
+    .insert({
+      conversation_id: conversationId,
+      sender_id: senderId,
+      sender_role: senderRole,
+      body: text,
+      quote_id: quote?.id ?? null,
+      quote_ref: quote?.ref ?? null,
+    })
     .select(MSG_COLS)
     .single();
   if (error) throw error;
@@ -173,7 +189,8 @@ export async function sendAttachmentMessage(
   senderRole: ChatRole,
   attachment: { path: string; name: string; type: string; size: number },
   caption: string,
-  sb: SupabaseClient = admin()
+  sb: SupabaseClient = admin(),
+  quote: QuoteTag | null = null
 ): Promise<ChatMessage> {
   const text = caption.trim();
   const { data, error } = await sb
@@ -183,6 +200,8 @@ export async function sendAttachmentMessage(
       sender_id: senderId,
       sender_role: senderRole,
       body: text,
+      quote_id: quote?.id ?? null,
+      quote_ref: quote?.ref ?? null,
       attachment_path: attachment.path,
       attachment_name: attachment.name,
       attachment_type: attachment.type,
