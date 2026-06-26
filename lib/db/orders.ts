@@ -8,7 +8,8 @@ import { getQuoteOwnerId } from "./ownership";
 import { getRetailerDiscount, getShippingWaivers } from "./profile";
 import { deductMotorStock, restoreMotorStock } from "./motors";
 import { loadCatalog } from "./accessory-catalog";
-import { computeShipping, DEFAULT_SHIPPING, type ShippingMode, type ShippingState } from "@/lib/shipping";
+import { getVariationItemModelMap } from "./variations";
+import { computeShipping, DEFAULT_SHIPPING, type MotorRate, type ShippingMode, type ShippingState } from "@/lib/shipping";
 import { isAccessoryConfig } from "@/lib/types";
 
 /** Orders needing admin action: new submissions to acknowledge + bank transfers to confirm. */
@@ -74,13 +75,20 @@ export async function submitPreOrder(
     const net = round2(subtotal * (1 - discountPct / 100));
     // Shipping: compute against the net goods total + the quote's chosen mode, then bake into amount
     // so payment is correct. (FOB → 0; expedite always charged; ground waived ≥ $1000 / waived retailer.)
-    const [catalog, waivers, expedite] = await Promise.all([
+    const [catalog, waivers, expedite, itemModelMap] = await Promise.all([
       loadCatalog(),
       getShippingWaivers(ownerId),
       getQuoteExpedite(quoteId, sb),
+      getVariationItemModelMap(),
     ]);
-    // Per-line by each motor's made-in mode; the order's snapshot mode is "ground" if any line is.
-    const ship = computeShipping(quote.items, catalog, expedite, net, waivers);
+    // variation item_id → its source model's shipping rate/mode (for sub-parts like brackets).
+    const itemRates: Record<string, MotorRate> = {};
+    for (const [itemId, modelId] of Object.entries(itemModelMap)) {
+      const m = catalog.model(modelId);
+      if (m) itemRates[itemId] = { shipGround: m.shipGround, shipExpedite: m.shipExpedite, shipMode: m.shipMode };
+    }
+    // Per-line by each motor's (and its variations') made-in mode; snapshot mode is "ground" if any.
+    const ship = computeShipping(quote.items, catalog, itemRates, expedite, net, waivers);
     const amount = round2(net + ship.amount);
     const order = await insertWithRef("orders", "PO", async (ref) => {
       const { data, error } = await sb

@@ -64,9 +64,11 @@ export interface ShippingCatalog {
 }
 
 /**
- * Compute shipping for a quote, per line by each motor's made-in mode.
+ * Compute shipping for a quote, per line by each motor's made-in mode. Each line's chosen
+ * variations (e.g. a US-made bracket) are charged too, at their own model's rate/mode.
  * @param items     the quote's line items (only accessory/motor lines are charged)
  * @param catalog   live catalog, for each motor's per-unit rate + mode
+ * @param itemRates variation item_id → rate/mode (from its source model); for variation sub-parts
  * @param expedite  the customer's expedite request (applies to US-made / ground lines)
  * @param subtotal  goods subtotal (post-discount net) — drives the $1000 ground waiver
  * @param waivers   this retailer's shipping waivers ({ ground, expedite })
@@ -74,6 +76,7 @@ export interface ShippingCatalog {
 export function computeShipping(
   items: QuoteItemRow[],
   catalog: ShippingCatalog,
+  itemRates: Record<string, MotorRate>,
   expedite: boolean,
   subtotal: number,
   waivers: ShippingWaivers
@@ -81,17 +84,20 @@ export function computeShipping(
   let raw = 0;
   let hasGround = false;
   let hasFob = false;
-  for (const it of items) {
-    if (!isAccessoryConfig(it.config)) continue; // only motor lines are charged this phase
-    const rate = catalog.model(it.productId);
-    if (!rate) continue; // model deleted / unknown → no charge
+  // Charge one rate for `qty` units: ground → adds to the bill; fob → just flags FOB present.
+  const charge = (rate: MotorRate | undefined, qty: number) => {
+    if (!rate) return;
     if (rate.shipMode === "ground") {
       hasGround = true;
-      const per = expedite ? rate.shipExpedite ?? 0 : rate.shipGround ?? 0;
-      raw += per * it.qty;
+      raw += (expedite ? rate.shipExpedite ?? 0 : rate.shipGround ?? 0) * qty;
     } else {
       hasFob = true; // China-made → ships FOB, no domestic charge
     }
+  };
+  for (const it of items) {
+    if (!isAccessoryConfig(it.config)) continue; // only motor lines are charged this phase
+    charge(catalog.model(it.productId), it.qty); // the motor itself
+    for (const v of it.config.variations ?? []) charge(itemRates[v.itemId], it.qty); // its sub-parts
   }
   raw = round2(raw);
 

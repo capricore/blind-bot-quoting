@@ -63,6 +63,21 @@ export async function getProductVariationMap(sb: SupabaseClient = admin()): Prom
   return map;
 }
 
+/**
+ * variation item_id → the catalog model it was synced from (variation_items.source_model_id).
+ * Lets shipping charge a variation sub-part (e.g. a US-made bracket) at its own model's rate/mode.
+ * Best-effort: {} if the table/column isn't present. Items with no source model are omitted.
+ */
+export async function getVariationItemModelMap(sb: SupabaseClient = admin()): Promise<Record<string, string>> {
+  const { data, error } = await sb.from("variation_items").select("id, source_model_id").not("source_model_id", "is", null);
+  if (error) return {};
+  const map: Record<string, string> = {};
+  for (const row of (data ?? []) as { id: string; source_model_id: string | null }[]) {
+    if (row.source_model_id) map[row.id] = row.source_model_id;
+  }
+  return map;
+}
+
 /** model_id → the item_ids marked default (pre-selected at quote time). Best-effort: {}. */
 export async function getProductDefaultsMap(sb: SupabaseClient = admin()): Promise<Record<string, string[]>> {
   const { data, error } = await sb.from("variation_product_items").select("model_id, item_id").eq("is_default", true);

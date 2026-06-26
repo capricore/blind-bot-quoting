@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeleteDraftButton, RemoveItemButton, SubmitPreOrderButton } from "@/components/QuoteActions";
 import { QuoteDetailsDrawer } from "@/components/QuoteDetailsDrawer";
-import { QuoteShippingPicker } from "@/components/QuoteShippingPicker";
+import { ShippingSummaryRow } from "@/components/ShippingSummaryRow";
 import { LineQtyEditor } from "@/components/LineQtyEditor";
 import { Swatch } from "@/components/renders";
 import { BackLink, Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
@@ -20,9 +20,10 @@ import {
   getRetailerDiscount,
   getShippingWaivers,
   getUnreadCount,
+  getVariationItemModelMap,
   loadCatalog,
 } from "@/lib/db";
-import { computeShipping } from "@/lib/shipping";
+import { computeShipping, type MotorRate } from "@/lib/shipping";
 import { canInvoiceQuote } from "@/lib/invoice";
 import { describeConfig } from "@/lib/describe";
 import { fmtDate, usd } from "@/lib/format";
@@ -68,8 +69,32 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   // expedite. Priced per line, live against the net goods total (server is the source of truth).
   const expedite = await getQuoteExpedite(quote.id, sb);
   const waivers = await getShippingWaivers(ownerId);
-  const ship = computeShipping(quote.items, catalog, expedite, netTotal, waivers);
+  const itemModelMap = await getVariationItemModelMap();
+  // variation item_id → its source model's shipping rate/mode (for sub-parts like brackets).
+  const itemRates: Record<string, MotorRate> = {};
+  for (const [itemId, modelId] of Object.entries(itemModelMap)) {
+    const m = catalog.model(modelId);
+    if (m) itemRates[itemId] = { shipGround: m.shipGround, shipExpedite: m.shipExpedite, shipMode: m.shipMode };
+  }
+  const ship = computeShipping(quote.items, catalog, itemRates, expedite, netTotal, waivers);
   const grandTotal = Math.round((netTotal + ship.amount) * 100) / 100;
+  // Per-item shipping breakdown (each US-made / ground motor + any US-made variation sub-part).
+  const unitOf = (r: MotorRate) => (expedite ? r.shipExpedite ?? 0 : r.shipGround ?? 0);
+  const shipLineDetail = ship.hasGround
+    ? quote.items.flatMap((it) => {
+        if (!isAccessoryConfig(it.config)) return [];
+        const rows: { name: string; qty: number; unit: number; total: number }[] = [];
+        const push = (name: string, r?: MotorRate) => {
+          if (r?.shipMode !== "ground") return;
+          const unit = unitOf(r);
+          rows.push({ name, qty: it.qty, unit, total: Math.round(unit * it.qty * 100) / 100 });
+        };
+        const m = catalog.model(it.productId);
+        push(m?.name ?? it.config.name, m);
+        for (const v of it.config.variations ?? []) push(v.itemLabel, itemRates[v.itemId]);
+        return rows;
+      })
+    : [];
 
   // Retailer-facing "message us about this quote" bubble. Admins reply from the full inbox at
   // /messages (where the quote chip carries the context), so the launcher is retailer-only.
@@ -333,7 +358,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                     </dd>
                   </div>
                   <div className="flex justify-between border-t border-line pt-2.5">
-                    <dt className="text-muted">Subtotal · FOB</dt>
+                    <dt className="text-muted">Subtotal</dt>
                     <dd className="font-medium tabular-nums text-ink-soft">{usd(quote.total)}</dd>
                   </div>
                   {discountPct > 0 && (
@@ -342,33 +367,17 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                       <dd className="font-medium tabular-nums">−{usd(discountAmt)}</dd>
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <dt className="text-muted">
-                      Shipping
-                      {ship.hasGround && (
-                        <span className="ml-1 text-muted/80">· {ship.expedite ? "Expedite" : "Ground"}</span>
-                      )}
-                    </dt>
-                    <dd className="font-medium tabular-nums text-ink-soft">
-                      {!ship.hasGround ? (
-                        <span className="text-muted">FOB — you arrange</span>
-                      ) : ship.amount > 0 ? (
-                        `+${usd(ship.amount)}`
-                      ) : ship.waiver === "retailer" ? (
-                        <span className="text-emerald-600">Waived</span>
-                      ) : ship.waiver === "threshold" ? (
-                        <span className="text-emerald-600">Free (over $1,000)</span>
-                      ) : (
-                        usd(0)
-                      )}
-                    </dd>
-                  </div>
-                  {ship.hasGround && ship.leadDays != null && (
-                    <div className="-mt-1 text-[11px] text-muted">
-                      US-made items · est. arrival ≈ {ship.leadDays} business days
-                      {ship.hasFob && " · China-made items ship FOB (freight arranged by you)"}
-                    </div>
-                  )}
+                  <ShippingSummaryRow
+                    quoteId={quote.id}
+                    editable={quote.status === "draft"}
+                    amount={ship.amount}
+                    waiver={ship.waiver}
+                    hasGround={ship.hasGround}
+                    hasFob={ship.hasFob}
+                    expedite={ship.expedite}
+                    leadDays={ship.leadDays}
+                    lines={shipLineDetail}
+                  />
                   <div className="flex justify-between border-t border-line pt-2.5 text-[15px]">
                     <dt className="font-semibold text-ink">Total{!ship.hasGround ? " · FOB" : ""}</dt>
                     <dd className="font-semibold tabular-nums text-ink">{usd(grandTotal)}</dd>
@@ -376,9 +385,6 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                 </dl>
               </Card>
 
-              {quote.status === "draft" && ship.hasGround && (
-                <QuoteShippingPicker quoteId={quote.id} expedite={expedite} />
-              )}
 
               {quote.status === "draft" ? (
                 <>
