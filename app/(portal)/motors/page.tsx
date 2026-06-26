@@ -6,6 +6,7 @@ import { MotorInventoryEditor, type InventoryRow } from "@/components/MotorInven
 import { MotorPriceEditor, type PriceRow, type Target } from "@/components/MotorPriceEditor";
 import { MotorShippingEditor, type ShippingRow } from "@/components/MotorShippingEditor";
 import { RetailerDiscountEditor } from "@/components/RetailerDiscountEditor";
+import { RetailerPricingList } from "@/components/RetailerPricingList";
 import { WaiveShippingEditor } from "@/components/WaiveShippingEditor";
 import { VariationsAdmin, type VariationProduct } from "@/components/VariationsAdmin";
 import { CatalogAdmin } from "@/components/CatalogAdmin";
@@ -179,7 +180,7 @@ async function PricingTab({ retailerParam }: { retailerParam?: string }) {
 
   if (!retailerParam) {
     return (
-      <div className="max-w-xl space-y-2">
+      <div className="max-w-4xl space-y-2">
         <Link href="/motors?tab=pricing&retailer=default" className="block">
           <Card className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#faf9f5]">
             <div>
@@ -189,19 +190,7 @@ async function PricingTab({ retailerParam }: { retailerParam?: string }) {
             <span className="text-brass">→</span>
           </Card>
         </Link>
-        <div className="px-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Retailers</div>
-        {retailers.length === 0 && <div className="px-1 text-[13px] text-muted">No retailer accounts yet.</div>}
-        {retailers.map((r) => (
-          <Link key={r.id} href={`/motors?tab=pricing&retailer=${r.id}`} className="block">
-            <Card className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#faf9f5]">
-              <div className="min-w-0">
-                <div className="truncate text-[14px] font-semibold text-ink">{r.company ?? r.email}</div>
-                <div className="truncate text-[12px] text-muted">{r.email}</div>
-              </div>
-              <span className="text-brass">→</span>
-            </Card>
-          </Link>
-        ))}
+        <RetailerPricingList retailers={retailers} />
       </div>
     );
   }

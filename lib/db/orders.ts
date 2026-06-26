@@ -350,6 +350,30 @@ export async function getOrder(
   return { ...order, quote, events: (events ?? []) as unknown as OrderEventRow[] };
 }
 
+/**
+ * Switch the payment method on an unpaid order (retailer changed their mind before paying).
+ * Only allowed while still awaiting_payment; resets payment_status to "pending" so a prior failed
+ * gateway attempt doesn't stick. Must run with the service_role client — RLS lets only admins
+ * UPDATE orders (ownership is enforced at the route gate). No fulfilment event: the order hasn't
+ * moved stages, only how it will be paid.
+ */
+export async function changeOrderPaymentMethod(
+  orderId: number,
+  method: PaymentMethod,
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  const { data: ord } = await sb.from("orders").select("status").eq("id", orderId).maybeSingle();
+  if (!ord) throw new Error("Order not found");
+  if ((ord as { status: string }).status !== "awaiting_payment") {
+    throw new Error("Payment method can only be changed before payment");
+  }
+  const { error } = await sb
+    .from("orders")
+    .update({ payment_method: method, payment_status: "pending", updated_at: new Date().toISOString() })
+    .eq("id", orderId);
+  if (error) throw error;
+}
+
 export async function updateOrder(
   id: number,
   patch: Partial<Pick<OrderRow, "status" | "supplierOrderNo" | "trackingNo" | "carrier" | "etaDate">>,

@@ -16,6 +16,13 @@ const METHOD_LABEL: Record<PaymentMethod, string> = {
   bank_transfer: "Bank transfer",
 };
 
+// Same options/order as the initial submit flow (see QuoteActions).
+const PAYMENT_OPTIONS: { id: PaymentMethod; icon: string; label: string; desc: string }[] = [
+  { id: "stripe", icon: "💳", label: "Card (Stripe)", desc: "Pay by credit or debit card" },
+  { id: "paypal", icon: "🅿️", label: "PayPal", desc: "Pay with your PayPal account" },
+  { id: "bank_transfer", icon: "🏦", label: "Bank transfer", desc: "Wire to our account" },
+];
+
 function StatusPill({ status }: { status: PaymentStatus }) {
   const map = { paid: "green", failed: "amber", pending: "slate" } as const;
   const label = { paid: "Paid", failed: "Payment failed", pending: "Awaiting payment" }[status];
@@ -51,18 +58,41 @@ export function OrderPayment({
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState(false);
 
-  const payNow = async () => {
+  // Pay via a gateway: switch the order to that method first (if changed), then start checkout.
+  // /pay reads the order's method from the DB, so the switch must land before we call it.
+  const payWith = async (m: PaymentMethod) => {
     setBusy(true);
     setErr(null);
     try {
+      if (m !== method) {
+        const rs = await fetch(`/api/orders/${orderId}/payment-method`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ method: m }),
+        });
+        const ds = await rs.json().catch(() => ({}));
+        if (!rs.ok) throw new Error(ds.error ?? "Could not change payment method");
+      }
       const r = await fetch(`/api/orders/${orderId}/pay`, { method: "POST" });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? "Could not start payment");
-      if (data.url) window.location.href = data.url;
+      if (data.url) window.location.assign(data.url);
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
+    }
+  };
+
+  // Pick a method from the chooser: gateways jump straight to checkout; bank transfer just
+  // switches the order (the panel then shows the wire instructions).
+  const chooseMethod = (m: PaymentMethod) => {
+    setChoosing(false);
+    if (m === "bank_transfer") {
+      if (m !== method) switchMethod(m);
+    } else {
+      payWith(m);
     }
   };
 
@@ -74,6 +104,25 @@ export function OrderPayment({
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error ?? "Could not report transfer");
       toast("Thanks — we'll confirm your transfer shortly");
+      router.refresh();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const switchMethod = async (next: PaymentMethod) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/orders/${orderId}/payment-method`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ method: next }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error ?? "Could not change payment method");
       router.refresh();
     } catch (e) {
       setErr((e as Error).message);
@@ -117,66 +166,102 @@ export function OrderPayment({
         </span>
       </div>
 
-      {/* Bank transfer — where to pay + "I've made the transfer". Admin confirms in Supplier Console. */}
-      {isBank && awaiting && (
+      {/* Awaiting payment — bank transfer shows wire instructions; gateways show a Pay button that
+          opens the method chooser (same pattern as the initial submit flow). */}
+      {awaiting && !choosing && (
         <div className="mt-4">
-          {bankReady ? (
-            <div className="rounded-xl border border-line bg-surface p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Transfer {amountLabel} to</div>
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-                {ROW.filter((r) => bankInfo![r.key]).map((r) => (
-                  <div key={r.key} className="contents">
-                    <dt className="text-muted">{r.label}</dt>
-                    <dd className="font-medium text-ink">{bankInfo![r.key]}</dd>
-                  </div>
-                ))}
-              </dl>
-              {bankInfo!.instructions && <p className="mt-2 text-[12px] text-ink-soft">{bankInfo!.instructions}</p>}
-            </div>
-          ) : (
-            <p className="rounded-xl border border-line bg-surface p-3 text-[12.5px] text-muted">
-              Bank details are being set up — please contact us.
-            </p>
-          )}
+          {isBank ? (
+            <>
+              {bankReady ? (
+                <div className="rounded-xl border border-line bg-surface p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Transfer {amountLabel} to</div>
+                  <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
+                    {ROW.filter((r) => bankInfo![r.key]).map((r) => (
+                      <div key={r.key} className="contents">
+                        <dt className="text-muted">{r.label}</dt>
+                        <dd className="font-medium text-ink">{bankInfo![r.key]}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {bankInfo!.instructions && <p className="mt-2 text-[12px] text-ink-soft">{bankInfo!.instructions}</p>}
+                </div>
+              ) : (
+                <p className="rounded-xl border border-line bg-surface p-3 text-[12.5px] text-muted">
+                  Bank details are being set up — please contact us.
+                </p>
+              )}
 
-          {transferReported ? (
-            <p className="mt-3 text-[12.5px] font-medium text-emerald-700">
-              ✓ Transfer reported — we&apos;ll confirm here once the funds arrive and move your order forward.
-            </p>
+              {transferReported ? (
+                <p className="mt-3 text-[12.5px] font-medium text-emerald-700">
+                  ✓ Transfer reported — we&apos;ll confirm here once the funds arrive and move your order forward.
+                </p>
+              ) : (
+                <div className="mt-3">
+                  <Button variant="primary" busy={busy} className="py-2" onClick={reportTransfer} disabled={!bankReady}>
+                    I&apos;ve made the transfer
+                  </Button>
+                  <p className="mt-1.5 text-[11px] text-muted">
+                    Click after you&apos;ve sent the wire — we&apos;ll confirm receipt and move your order forward.
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setChoosing(true)}
+                className="mt-3 block text-[12px] font-medium text-brass hover:underline"
+              >
+                Change payment method
+              </button>
+            </>
           ) : (
-            <div className="mt-3">
-              <Button variant="primary" busy={busy} className="py-2" onClick={reportTransfer} disabled={!bankReady}>
-                I&apos;ve made the transfer
+            <>
+              {paymentStatus === "failed" && (
+                <p className="mb-2 text-[12.5px] text-ink-soft">The last payment attempt didn&apos;t go through.</p>
+              )}
+              <Button variant="primary" busy={busy} className="py-2.5" onClick={() => setChoosing(true)}>
+                {paymentStatus === "failed" ? "Retry payment" : "Pay"} · {amountLabel}
               </Button>
-              <p className="mt-1.5 text-[11px] text-muted">
-                Click after you&apos;ve sent the wire — we&apos;ll confirm receipt and move your order forward.
-              </p>
-            </div>
+            </>
           )}
         </div>
       )}
 
-      {/* Card (Stripe) awaiting or failed — pay / retry via hosted Checkout. */}
-      {method === "stripe" && awaiting && (
-        <div className="mt-3">
-          <p className="mb-2 text-[12.5px] text-ink-soft">
-            {paymentStatus === "failed" ? "The last payment attempt didn't go through." : "Complete your card payment to place this order."}
-          </p>
-          <Button variant="primary" busy={busy} className="py-2" onClick={payNow}>
-            {paymentStatus === "failed" ? "Retry card payment" : "Pay with card"}
-          </Button>
-        </div>
-      )}
-
-      {/* PayPal — approve via PayPal, captured on return. */}
-      {method === "paypal" && awaiting && (
-        <div className="mt-3">
-          <p className="mb-2 text-[12.5px] text-ink-soft">
-            {paymentStatus === "failed" ? "The last payment attempt didn't go through." : "Complete your PayPal payment to place this order."}
-          </p>
-          <Button variant="primary" busy={busy} className="py-2" onClick={payNow}>
-            {paymentStatus === "failed" ? "Retry PayPal" : "Pay with PayPal"}
-          </Button>
+      {/* Payment method chooser — same card as the initial "Submit pre-order" flow. */}
+      {awaiting && choosing && (
+        <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
+          <div className="mb-3 text-center">
+            <div className="text-[13px] font-semibold text-ink">Choose payment method</div>
+            <div className="text-[12px] text-muted">Total due · {amountLabel}</div>
+          </div>
+          <div className="space-y-2">
+            {PAYMENT_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => chooseMethod(opt.id)}
+                disabled={busy}
+                className={cx(
+                  "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all",
+                  opt.id === method ? "border-ink bg-[#faf9f5]" : "border-line hover:border-ink hover:bg-[#faf9f5]",
+                  busy && "opacity-60"
+                )}
+              >
+                <span className="text-xl">{opt.icon}</span>
+                <div className="flex-1">
+                  <div className="text-[13.5px] font-medium text-ink">{opt.label}</div>
+                  <div className="text-[11.5px] text-muted">{opt.desc}</div>
+                </div>
+                {opt.id === method && <span className="text-[11px] font-medium text-brass">Current</span>}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setChoosing(false)}
+            disabled={busy}
+            className="mt-3 w-full text-center text-[12px] text-muted hover:text-ink"
+          >
+            Cancel
+          </button>
         </div>
       )}
 
