@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { usd } from "@/lib/format";
+import { useShippingRecalc } from "./ShippingRecalcContext";
 import { useToast } from "./Toast";
 import { cx, Spinner } from "./ui";
 
@@ -37,8 +38,8 @@ export function ShippingSummaryRow({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { pending: busy, setPending: setBusy } = useShippingRecalc();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
   const canExpand = hasGround && lines.length > 0;
   const rawTotal = Math.round(lines.reduce((s, l) => s + l.total, 0) * 100) / 100;
 

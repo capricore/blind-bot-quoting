@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { DeleteDraftButton, RemoveItemButton, SubmitPreOrderButton } from "@/components/QuoteActions";
 import { QuoteDetailsDrawer } from "@/components/QuoteDetailsDrawer";
 import { ShippingSummaryRow } from "@/components/ShippingSummaryRow";
+import { ShippingRecalcProvider } from "@/components/ShippingRecalcContext";
 import { LineQtyEditor } from "@/components/LineQtyEditor";
 import { Swatch } from "@/components/renders";
 import { BackLink, Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
@@ -337,6 +338,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
           </div>
 
           <div>
+            <ShippingRecalcProvider>
             <div className="sticky top-8 space-y-4">
               <Card className="px-5 py-5">
                 <h3 className="text-sm font-semibold text-ink">Summary</h3>
@@ -412,6 +414,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                 </LinkButton>
               )}
             </div>
+            </ShippingRecalcProvider>
           </div>
         </div>
       )}

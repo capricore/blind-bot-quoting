@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useShippingRecalc } from "./ShippingRecalcContext";
 import { Button, cx } from "./ui";
 
 export function DeleteDraftButton({ quoteId }: { quoteId: number }) {
@@ -73,6 +74,9 @@ export function SubmitPreOrderButton({
   token?: string;
 }) {
   const router = useRouter();
+  // Shipping recalculation (e.g. toggling expedite) must finish before paying — otherwise the
+  // customer could pay against a stale total.
+  const { pending: shippingBusy } = useShippingRecalc();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -108,8 +112,13 @@ export function SubmitPreOrderButton({
   if (!open) {
     return (
       <div>
-        <Button variant="primary" onClick={() => setOpen(true)} className="w-full py-3">
-          Confirm &amp; pay →
+        <Button
+          variant="primary"
+          onClick={() => setOpen(true)}
+          disabled={shippingBusy}
+          className="w-full py-3"
+        >
+          {shippingBusy ? "Updating shipping…" : "Confirm & pay →"}
         </Button>
         {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
       </div>
@@ -136,8 +145,8 @@ export function SubmitPreOrderButton({
         ))}
       </div>
       <div className="mt-3 flex gap-2">
-        <Button variant="primary" onClick={submit} busy={busy} className="py-2">
-          {busy ? "Placing…" : "Place pre-order"}
+        <Button variant="primary" onClick={submit} busy={busy} disabled={shippingBusy} className="py-2">
+          {busy ? "Placing…" : shippingBusy ? "Updating shipping…" : "Place pre-order"}
         </Button>
         <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy} className="py-2">
           Cancel

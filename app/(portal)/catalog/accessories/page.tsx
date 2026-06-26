@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AddAccessoryButton } from "@/components/AccessoryActions";
 import { AccessoryFilters } from "@/components/AccessoryFilters";
+import { AccessorySearchBox } from "@/components/AccessorySearchBox";
 import { FrequentParts, type FrequentPart } from "@/components/FrequentParts";
 import { Badge, Card, cx, PageHeader } from "@/components/ui";
 import { getCurrentUserId } from "@/lib/auth/user";
@@ -82,7 +83,17 @@ export default async function AccessoriesPage({
   }
   // minimum-order-quantity facet: "1" = only products with a minimum, "0" = only products without
   const moq = sp.moq === "1" ? "1" : sp.moq === "0" ? "0" : "";
-  const filtering = Object.keys(selected).length > 0 || moq !== "";
+  // free-text name/SKU search (raw for the input; lowercased for matching)
+  const searchRaw = typeof sp.q === "string" ? sp.q.trim() : "";
+  const search = searchRaw.toLowerCase();
+  const filtering = Object.keys(selected).length > 0 || moq !== "" || search !== "";
+
+  // Params the search box preserves (everything except q itself).
+  const baseParams: Record<string, string> = {};
+  if (cat) baseParams.cat = cat;
+  if (quoteId) baseParams.quote = String(quoteId);
+  for (const [k, v] of Object.entries(selected)) baseParams[`t_${k}`] = v;
+  if (moq) baseParams.moq = moq;
 
   // When filtering, search ALL orderable motors across categories; otherwise browse the active category.
   const baseModels = filtering
@@ -95,6 +106,7 @@ export default async function AccessoriesPage({
         const hasMoq = (model.moq ?? 0) > 0;
         if (moq === "1" && !hasMoq) return false;
         if (moq === "0" && hasMoq) return false;
+        if (search && !`${model.name} ${model.sku}`.toLowerCase().includes(search)) return false;
         return Object.values(selected).every((valueId) => tags.has(valueId));
       })
     : baseModels;
@@ -121,7 +133,7 @@ export default async function AccessoriesPage({
 
       <FrequentParts parts={frequentParts} quoteId={quoteId} variations={variations} restrictions={restrictions} />
 
-      <AccessoryFilters attributes={attributes} selected={selected} moq={moq} cat={cat} quote={quoteId} />
+      <AccessoryFilters attributes={attributes} selected={selected} moq={moq} q={searchRaw} cat={cat} quote={quoteId} />
 
       {/* 3-level master-detail: Brand → Category → Models */}
       <div className="grid gap-4 lg:grid-cols-[200px_240px_1fr]">
@@ -180,6 +192,9 @@ export default async function AccessoriesPage({
             {!filtering && !activeCat.orderable && (
               <span className="text-[10.5px] text-muted">— reference only (not yet orderable)</span>
             )}
+            <div className="ml-auto">
+              <AccessorySearchBox q={searchRaw} baseParams={baseParams} />
+            </div>
           </div>
           <Card className="overflow-hidden">
             {models.length === 0 ? (

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { InvoicePayOrderButton, PrintInvoiceButton } from "@/components/InvoiceActions";
+import { InvoicePayPicker, PrintInvoiceButton } from "@/components/InvoiceActions";
 import { SubmitPreOrderButton } from "@/components/QuoteActions";
 import { Badge, Button } from "@/components/ui";
 import { canAccessOwned, userClient } from "@/lib/auth/user";
@@ -133,11 +133,12 @@ export default async function InvoicePage({
             <Badge tone="green">Paid {order?.paidAt ? `· ${fmtDate(order.paidAt)}` : ""}</Badge>
           ) : quote.status === "converted" && order ? (
             publicMode ? (
-              order.paymentMethod === "bank_transfer" ? (
-                <Badge tone="amber">Awaiting bank transfer</Badge>
-              ) : (
-                <InvoicePayOrderButton orderId={order.id} token={shareToken} label="Pay this invoice →" />
-              )
+              <InvoicePayPicker
+                orderId={order.id}
+                token={shareToken}
+                currentMethod={order.paymentMethod}
+                amountLabel={usd(total)}
+              />
             ) : (
               <Link href={`/orders/${order.id}`}>
                 <Button variant="primary" className="py-2.5">

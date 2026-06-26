@@ -5,18 +5,21 @@ import type { AttributeWithValues } from "@/lib/db";
 
 const BASE = "/catalog/accessories";
 
-/** Retailer faceted filter for the accessory catalog. One dropdown per attribute; AND across.
- *  Plus a standalone minimum-order-quantity facet: ?moq=1 (has a minimum) / ?moq=0 (no minimum). */
+/** Retailer faceted filter for the accessory catalog. One dropdown per attribute (AND across),
+ *  plus a minimum-order-quantity facet: ?moq=1 (has) / ?moq=0 (none). Free-text search lives in the
+ *  models-column header (AccessorySearchBox); the ?q param is preserved here when filters change. */
 export function AccessoryFilters({
   attributes,
   selected,
   moq,
+  q,
   cat,
   quote,
 }: {
   attributes: AttributeWithValues[];
   selected: Record<string, string>;
   moq: string; // "" = any, "1" = has a minimum, "0" = no minimum
+  q: string; // preserved across filter changes
   cat?: string;
   quote?: number;
 }) {
@@ -29,6 +32,7 @@ export function AccessoryFilters({
     if (quote) p.set("quote", String(quote));
     for (const [k, v] of Object.entries(sel)) if (v) p.set(`t_${k}`, v);
     if (moqVal) p.set("moq", moqVal);
+    if (q.trim()) p.set("q", q.trim());
     const qs = p.toString();
     return qs ? `${BASE}?${qs}` : BASE;
   };

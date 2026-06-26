@@ -59,6 +59,12 @@ export function OrderPayment({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  // The method highlighted in the chooser — committed only when the user presses Confirm.
+  const [selected, setSelected] = useState<PaymentMethod>(method ?? "stripe");
+  const openChooser = () => {
+    setSelected(method ?? "stripe");
+    setChoosing(true);
+  };
 
   // Pay via a gateway: switch the order to that method first (if changed), then start checkout.
   // /pay reads the order's method from the DB, so the switch must land before we call it.
@@ -208,7 +214,7 @@ export function OrderPayment({
 
               <button
                 type="button"
-                onClick={() => setChoosing(true)}
+                onClick={openChooser}
                 className="mt-3 block text-[12px] font-medium text-brass hover:underline"
               >
                 Change payment method
@@ -219,7 +225,7 @@ export function OrderPayment({
               {paymentStatus === "failed" && (
                 <p className="mb-2 text-[12.5px] text-ink-soft">The last payment attempt didn&apos;t go through.</p>
               )}
-              <Button variant="primary" busy={busy} className="py-2.5" onClick={() => setChoosing(true)}>
+              <Button variant="primary" busy={busy} className="py-2.5" onClick={openChooser}>
                 {paymentStatus === "failed" ? "Retry payment" : "Pay"} · {amountLabel}
               </Button>
             </>
@@ -238,11 +244,11 @@ export function OrderPayment({
             {PAYMENT_OPTIONS.map((opt) => (
               <button
                 key={opt.id}
-                onClick={() => chooseMethod(opt.id)}
+                onClick={() => setSelected(opt.id)}
                 disabled={busy}
                 className={cx(
                   "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all",
-                  opt.id === method ? "border-ink bg-[#faf9f5]" : "border-line hover:border-ink hover:bg-[#faf9f5]",
+                  opt.id === selected ? "border-ink bg-[#faf9f5]" : "border-line hover:border-ink hover:bg-[#faf9f5]",
                   busy && "opacity-60"
                 )}
               >
@@ -255,13 +261,14 @@ export function OrderPayment({
               </button>
             ))}
           </div>
-          <button
-            onClick={() => setChoosing(false)}
-            disabled={busy}
-            className="mt-3 w-full text-center text-[12px] text-muted hover:text-ink"
-          >
-            Cancel
-          </button>
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <Button variant="secondary" onClick={() => setChoosing(false)} disabled={busy} className="py-2">
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={() => chooseMethod(selected)} busy={busy} className="py-2">
+              Confirm
+            </Button>
+          </div>
         </div>
       )}
 
