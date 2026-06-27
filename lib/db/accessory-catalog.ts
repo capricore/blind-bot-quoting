@@ -15,7 +15,10 @@ import {
 export type AccessoryBrand = { id: string; name: string; tagline: string };
 
 export type CatalogSnapshot = {
+  /** the default (first) brand — back-compat for single-brand callers */
   brand: AccessoryBrand;
+  /** all brands (for the catalog's brand switcher) */
+  brands: AccessoryBrand[];
   categories: AccessoryCategory[];
   models: AccessoryModel[];
   category: (id: string) => AccessoryCategory | undefined;
@@ -25,11 +28,12 @@ export type CatalogSnapshot = {
   image: (m: AccessoryModel) => string;
 };
 
-function snapshot(brand: AccessoryBrand, categories: AccessoryCategory[], models: AccessoryModel[]): CatalogSnapshot {
+function snapshot(brands: AccessoryBrand[], categories: AccessoryCategory[], models: AccessoryModel[]): CatalogSnapshot {
   const catById = new Map(categories.map((c) => [c.id, c]));
   const modById = new Map(models.map((m) => [m.id, m]));
   return {
-    brand,
+    brand: brands[0],
+    brands,
     categories,
     models,
     category: (id) => catById.get(id),
@@ -39,7 +43,12 @@ function snapshot(brand: AccessoryBrand, categories: AccessoryCategory[], models
   };
 }
 
-const staticSnapshot = (): CatalogSnapshot => snapshot(ACCESSORY_BRAND, ACCESSORY_CATEGORIES, ACCESSORY_MODELS);
+const staticSnapshot = (): CatalogSnapshot =>
+  snapshot(
+    [ACCESSORY_BRAND],
+    ACCESSORY_CATEGORIES.map((c) => ({ ...c, brandId: ACCESSORY_BRAND.id })),
+    ACCESSORY_MODELS
+  );
 
 /** Backfill the DB from the static catalog (idempotent — only fills rows that don't exist). */
 async function seedFromStatic(sb: ReturnType<typeof admin>): Promise<void> {
@@ -79,7 +88,7 @@ export const loadCatalog = cache(async (): Promise<CatalogSnapshot> => {
 
   const { data: cats } = await sb
     .from("accessory_categories")
-    .select("id, name, blurb, orderable, image:image_url, sort")
+    .select("id, name, brandId:brand_id, blurb, orderable, image:image_url, sort")
     .order("sort");
   const { data: mods } = await sb
     .from("accessory_models")
@@ -97,5 +106,5 @@ export const loadCatalog = cache(async (): Promise<CatalogSnapshot> => {
       shipExpedite: Number(m.shipExpedite ?? 0),
       shipMode: m.shipMode === "ground" ? ("ground" as const) : ("fob" as const),
     }));
-  return snapshot(brands[0] as AccessoryBrand, categories, models);
+  return snapshot(brands as AccessoryBrand[], categories, models);
 });

@@ -54,7 +54,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             href={`/api/orders/${order.id}/excel`}
             className="inline-flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#2a3756] hover:shadow"
           >
-            ⬇ Supplier order file (.xlsx)
+            ⬇ Purchase order file (.xlsx)
           </a>
         }
       />
@@ -280,7 +280,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted">Supplier order №</dt>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted">Purchase order №</dt>
                   <dd className="mt-0.5 font-mono text-sm text-ink">{order.supplierOrderNo ?? "Awaiting acknowledgement"}</dd>
                 </div>
                 <div>
@@ -312,13 +312,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 <span className="font-semibold">How this works:</span>{" "}
                 {order.accessoryOnly ? (
                   <>
-                    on payment the portal generated the bilingual supplier order file and confirmed the order
-                    automatically — a supplier order number and ETA are issued. The supplier then ships and
+                    on payment the portal generated the bilingual purchase order file and confirmed the order
+                    automatically — a purchase order number and ETA are issued. The supplier then ships and
                     records the tracking number(s), synced here and pushed to you.
                   </>
                 ) : (
                   <>
-                    on submission the portal generated the bilingual supplier order file and queued it for
+                    on submission the portal generated the bilingual purchase order file and queued it for
                     delivery. The supplier returns an order number, production status, then a tracking number —
                     all synced here and pushed to you until delivery.
                   </>

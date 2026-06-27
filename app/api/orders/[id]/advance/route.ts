@@ -63,7 +63,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         { status: next, supplierOrderNo, etaDate },
         {
           status: next,
-          note: `Supplier confirmed order — supplier order no. ${supplierOrderNo}. ETA ${etaDate}.`,
+          note: `Supplier confirmed order — purchase order no. ${supplierOrderNo}. ETA ${etaDate}.`,
           actor: "supplier",
         }
       );

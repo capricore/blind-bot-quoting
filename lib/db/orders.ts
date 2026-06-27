@@ -278,7 +278,7 @@ export async function markOrderPaid(
       order_id: orderId,
       status: "acknowledged",
       actor: "supplier",
-      note: `Supplier confirmed order — supplier order no. ${supplierOrderNo}. ETA ${etaDate}.`,
+      note: `Supplier confirmed order — purchase order no. ${supplierOrderNo}. ETA ${etaDate}.`,
     });
   }
 

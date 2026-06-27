@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Badge, Card, cx } from "./ui";
 
 /** Compact catalog toolbar: brand › category breadcrumb (click to switch), inline search, and a
  *  collapsible Filters panel with an active-count badge + removable filter chips. */
 export function AccessoryToolbar({
-  brandName,
+  brands,
   categories,
   activeLabel,
   chips,
@@ -16,7 +17,7 @@ export function AccessoryToolbar({
   searchSlot,
   filtersSlot,
 }: {
-  brandName: string;
+  brands: { id: string; name: string; href: string; active: boolean }[];
   categories: { id: string; name: string; count: number; orderable: boolean; href: string; active: boolean }[];
   activeLabel: string;
   chips: { label: string; href: string }[];
@@ -25,25 +26,80 @@ export function AccessoryToolbar({
   searchSlot: ReactNode;
   filtersSlot: ReactNode;
 }) {
+  const [brandOpen, setBrandOpen] = useState(false);
   const [catOpen, setCatOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeBrand = brands.find((b) => b.active) ?? brands[0];
 
   return (
     <div className="mb-4 space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 text-[13px]">
-          <span className="font-medium text-ink-soft">{brandName}</span>
-          <span className="text-muted">›</span>
+          {/* Brand switcher — the quiet parent segment */}
+          <div className="relative">
+            <button
+              onClick={() => setBrandOpen((o) => !o)}
+              className="group flex items-center gap-1 rounded-md px-1.5 py-1 text-[12.5px] font-medium text-muted transition-colors hover:bg-[#f1efe9] hover:text-ink-soft"
+            >
+              {activeBrand?.name}
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={cx("text-muted/60 transition-transform group-hover:text-ink-soft", brandOpen && "rotate-180")}
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            {brandOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setBrandOpen(false)} aria-hidden />
+                <div className="absolute left-0 z-30 mt-1 max-h-[60vh] w-56 overflow-auto rounded-xl border border-line bg-surface p-1 shadow-xl">
+                  {brands.map((b) => (
+                    <Link
+                      key={b.id}
+                      href={b.href}
+                      onClick={() => setBrandOpen(false)}
+                      className={cx(
+                        "block truncate rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
+                        b.active ? "bg-[#fbf8f1] text-brass" : "text-ink hover:bg-[#faf9f5]"
+                      )}
+                    >
+                      {b.name}
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="shrink-0 text-line"
+          >
+            <path d="M9 6l6 6-6 6" />
+          </svg>
           <div className="relative">
             <button
               onClick={() => setCatOpen((o) => !o)}
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1 font-semibold text-ink transition-colors hover:bg-[#f1efe9]"
+              className="flex items-center gap-1.5 rounded-md px-1.5 py-1 font-semibold text-ink transition-colors hover:bg-[#f1efe9]"
             >
               {activeLabel}
               <svg
-                width="16"
-                height="16"
+                width="15"
+                height="15"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -60,9 +116,10 @@ export function AccessoryToolbar({
                 <div className="fixed inset-0 z-20" onClick={() => setCatOpen(false)} aria-hidden />
                 <div className="absolute left-0 z-30 mt-1 max-h-[60vh] w-72 overflow-auto rounded-xl border border-line bg-surface p-1 shadow-xl">
                   {categories.map((c) => (
-                    <a
+                    <Link
                       key={c.id}
                       href={c.href}
+                      onClick={() => setCatOpen(false)}
                       className={cx(
                         "flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 transition-colors",
                         c.active ? "bg-[#fbf8f1]" : "hover:bg-[#faf9f5]"
@@ -73,7 +130,7 @@ export function AccessoryToolbar({
                         <span className="block text-[11px] text-muted">{c.count} models</span>
                       </span>
                       {c.orderable ? <Badge tone="green">Orderable</Badge> : <Badge tone="slate">Reference</Badge>}
-                    </a>
+                    </Link>
                   ))}
                 </div>
               </>
@@ -108,18 +165,18 @@ export function AccessoryToolbar({
       {chips.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           {chips.map((c, i) => (
-            <a
+            <Link
               key={i}
               href={c.href}
               className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-ink hover:text-ink"
             >
               {c.label}
               <span className="text-muted">✕</span>
-            </a>
+            </Link>
           ))}
-          <a href={clearAllHref} className="text-[11.5px] font-medium text-muted hover:text-ink">
+          <Link href={clearAllHref} className="text-[11.5px] font-medium text-muted hover:text-ink">
             Clear all
-          </a>
+          </Link>
         </div>
       )}
 

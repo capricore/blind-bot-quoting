@@ -12,6 +12,8 @@
 export interface AccessoryCategory {
   id: string;
   name: string;
+  /** owning brand (DB-backed); absent in the static fallback (single brand) */
+  brandId?: string;
   /** motors are orderable; controls/power are reference-only for now */
   orderable: boolean;
   blurb: string;

@@ -174,7 +174,7 @@ export async function buildOrderWorkbook(orderId: number): Promise<{ buffer: Buf
   info.columns = [{ width: 100 }];
   [
     `1. 本预订单由 ${BRAND.name} 自动生成。 This pre-order was generated automatically by ${BRAND.name}.`,
-    "2. 请在确认后回传供应商订单号。 Please return the supplier order number upon confirmation.",
+    "2. 请在确认后回传采购订单号。 Please return the purchase order number upon confirmation.",
     "3. 发货后请提供运单号以同步物流状态。 Provide the tracking number at dispatch so logistics status can sync.",
     "4. 所有尺寸为成品尺寸，单位厘米。 All dimensions are finished sizes, in centimeters.",
   ].forEach((t, i) => {

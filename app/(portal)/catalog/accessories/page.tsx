@@ -29,6 +29,7 @@ export default async function AccessoriesPage({
 }) {
   const sp = await searchParams;
   const cat = typeof sp.cat === "string" ? sp.cat : undefined;
+  const brandParam = typeof sp.brand === "string" ? sp.brand : undefined;
   const quoteId =
     typeof sp.quote === "string" && Number.isInteger(Number(sp.quote)) ? Number(sp.quote) : undefined;
   const q = quoteId ? `&quote=${quoteId}` : "";
@@ -86,7 +87,14 @@ export default async function AccessoriesPage({
       moq: model.moq ?? 0,
     }];
   }).slice(0, 3);
-  const categories = catalog.categories;
+  // Brand switcher: pick the active brand (param → first), then scope categories to it. Static-
+  // fallback categories carry no brandId → treat them as the default brand so single-brand is intact.
+  const brands = catalog.brands;
+  const activeBrand = brands.find((b) => b.id === brandParam) ?? brands[0];
+  const brandSuffix = activeBrand && activeBrand.id !== brands[0]?.id ? `&brand=${activeBrand.id}` : "";
+  const categories = catalog.categories.filter(
+    (c) => (c.brandId ?? brands[0]?.id) === activeBrand?.id
+  );
   const activeCat = categories.find((c) => c.id === cat) ?? categories[0];
 
   // value id → label, for chips
@@ -109,6 +117,7 @@ export default async function AccessoriesPage({
   // Params the search box preserves (everything except q itself).
   const baseParams: Record<string, string> = {};
   if (cat) baseParams.cat = cat;
+  if (brandSuffix) baseParams.brand = activeBrand.id;
   if (quoteId) baseParams.quote = String(quoteId);
   for (const [k, v] of Object.entries(selected)) baseParams[`t_${k}`] = v;
   if (moq) baseParams.moq = moq;
@@ -159,6 +168,7 @@ export default async function AccessoriesPage({
   const buildHref = (sel: Record<string, string>, moqVal: string) => {
     const p = new URLSearchParams();
     if (cat) p.set("cat", cat);
+    if (brandSuffix) p.set("brand", activeBrand.id);
     if (quoteId) p.set("quote", String(quoteId));
     for (const [k, v] of Object.entries(sel)) if (v) p.set(`t_${k}`, v);
     if (moqVal) p.set("moq", moqVal);
@@ -172,8 +182,21 @@ export default async function AccessoriesPage({
     name: c.name,
     count: catalog.modelsIn(c.id).length,
     orderable: !!c.orderable,
-    href: `/catalog/accessories?cat=${c.id}${q}`,
+    href: `/catalog/accessories?cat=${c.id}${brandSuffix}${q}`,
     active: !filtering && c.id === activeCat.id,
+  }));
+
+  // Brand breadcrumb dropdown: switching brand drops the category (lands on the brand's first one).
+  const brandsData = brands.map((b) => ({
+    id: b.id,
+    name: b.name,
+    href:
+      b.id === brands[0]?.id
+        ? q
+          ? `/catalog/accessories?${q.slice(1)}`
+          : "/catalog/accessories"
+        : `/catalog/accessories?brand=${b.id}${q}`,
+    active: b.id === activeBrand?.id,
   }));
 
   const chips: { label: string; href: string }[] = [];
@@ -225,7 +248,7 @@ export default async function AccessoriesPage({
       <FrequentParts parts={frequentParts} quoteId={quoteId} variations={variations} restrictions={restrictions} />
 
       <AccessoryToolbar
-        brandName={catalog.brand.name}
+        brands={brandsData}
         categories={categoriesData}
         activeLabel={activeLabel}
         chips={chips}

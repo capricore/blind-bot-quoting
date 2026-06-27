@@ -46,7 +46,7 @@ const NAV: { section: string; adminOnly?: boolean; items: NavItem[] }[] = [
         ],
       },
       { href: "/quotes", label: "Quotes", icon: FileText },
-      { href: "/orders", label: "Pre-Orders", icon: Package },
+      { href: "/orders", label: "Orders", icon: Package },
       // Retailer's own support chat. Admins reach the inbox from Admin Console instead.
       { href: "/messages", label: "Messages", icon: MessageSquare, retailerOnly: true },
     ],
