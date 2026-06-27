@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { VariationRestriction, VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
 import { stashPendingItem } from "@/lib/pending-item";
@@ -53,11 +53,22 @@ export function AccessoryBrowser({
   showCategory: boolean;
 }) {
   const firstSelectable = models.find((m) => m.orderable && m.price !== null)?.id ?? null;
+  // Deep link from elsewhere (e.g. an order line) can preselect a row via ?sel=<modelId>.
+  const initialSel = useSearchParams().get("sel");
   // undefined → use default (first); null → explicitly closed; string → user pick.
-  const [picked, setPicked] = useState<string | null | undefined>(undefined);
+  const [picked, setPicked] = useState<string | null | undefined>(initialSel ?? undefined);
   const selectedId =
     picked === null ? null : picked && models.some((m) => m.id === picked) ? picked : firstSelectable;
   const selected = selectedId ? models.find((m) => m.id === selectedId) ?? null : null;
+
+  // On a deep-linked open, bring the preselected row into view (the list scrolls internally).
+  const listRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    if (!initialSel) return;
+    listRef.current?.querySelector(`[data-model-id="${initialSel}"]`)?.scrollIntoView({ block: "center" });
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex h-full overflow-hidden rounded-2xl border border-line bg-surface">
@@ -66,13 +77,14 @@ export function AccessoryBrowser({
         {models.length === 0 ? (
           <div className="px-5 py-12 text-center text-sm text-muted">No models match these filters.</div>
         ) : (
-          <ul className="divide-y divide-line/70">
+          <ul ref={listRef} className="divide-y divide-line/70">
             {models.map((m) => {
               const active = m.id === selectedId;
               const selectable = m.orderable && m.price !== null;
               return (
                 <li
                   key={m.id}
+                  data-model-id={m.id}
                   onClick={() => selectable && setPicked(m.id)}
                   className={cx(
                     "relative flex items-center gap-3.5 px-4 py-3 transition-colors",

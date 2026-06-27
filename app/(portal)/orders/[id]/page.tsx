@@ -10,6 +10,7 @@ import type { MotorRate } from "@/lib/shipping";
 import { describeConfig } from "@/lib/describe";
 import { isAccessoryConfig } from "@/lib/types";
 import { AccessoryVariations } from "@/components/AccessoryVariations";
+import { OrderShippingRow } from "@/components/OrderShippingRow";
 import { BRAND } from "@/lib/brand";
 import { ACTOR_LABEL, fmtDate, fmtDateTime, ORDER_STATUS_META, usd } from "@/lib/format";
 import { ORDER_STATUSES, ORDER_STATUSES_ACCESSORY, type OrderStatus } from "@/lib/types";
@@ -59,20 +60,30 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   }
   const multiBrand = brandGroups.length > 1;
 
-  // Per-line ground shipping cost — only needed to weight the per-brand shipping split.
-  const itemModelMap = multiBrand && ship.mode === "ground" ? await getVariationItemModelMap() : {};
+  // Per-line ground shipping cost — used both to weight the per-brand shipping split and to show a
+  // breakdown under the Shipping line (each US-made / ground motor + any US-made variation sub-part).
+  type ShipRow = { name: string; qty: number; unit: number; total: number };
+  const itemModelMap = ship.mode === "ground" ? await getVariationItemModelMap() : {};
   const rateOf = (modelId?: string): MotorRate | undefined => {
     const m = modelId ? catalog.model(modelId) : undefined;
     return m ? { shipGround: m.shipGround, shipExpedite: m.shipExpedite, shipMode: m.shipMode } : undefined;
   };
   const unitShip = (rt?: MotorRate) =>
     rt?.shipMode === "ground" ? (ship.expedite ? rt.shipExpedite ?? 0 : rt.shipGround ?? 0) : 0;
-  const lineShipRaw = (it: LineItem) => {
-    if (ship.mode !== "ground" || !isAccessoryConfig(it.config)) return 0;
-    let s = unitShip(rateOf(it.productId)) * it.qty;
-    for (const v of it.config.variations ?? []) s += unitShip(rateOf(itemModelMap[v.itemId])) * it.qty * (v.qty ?? 1);
-    return s;
+  // Per-line shipping detail rows (only ground-mode parts are charged; FOB parts contribute nothing).
+  const lineShipDetail = (it: LineItem): ShipRow[] => {
+    if (ship.mode !== "ground" || !isAccessoryConfig(it.config)) return [];
+    const rows: ShipRow[] = [];
+    const push = (name: string, rt: MotorRate | undefined, units: number) => {
+      if (rt?.shipMode !== "ground") return;
+      const unit = unitShip(rt);
+      rows.push({ name, qty: units, unit, total: r2(unit * units) });
+    };
+    push(catalog.model(it.productId)?.name ?? it.config.name, rateOf(it.productId), it.qty);
+    for (const v of it.config.variations ?? []) push(v.itemLabel, rateOf(itemModelMap[v.itemId]), it.qty * (v.qty ?? 1));
+    return rows;
   };
+  const lineShipRaw = (it: LineItem) => lineShipDetail(it).reduce((s, r) => s + r.total, 0);
   // Distribute a dollar total across weights (largest-remainder on cents) — the parts sum exactly.
   const allocate = (total: number, weights: number[]): number[] => {
     const cents = Math.round(total * 100);
@@ -93,12 +104,24 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     const goodsNet = r2(brandSubtotals[i] - brandDiscounts[i]);
     return { subtotal: brandSubtotals[i], discount: brandDiscounts[i], shipping: brandShippings[i], total: r2(goodsNet + brandShippings[i]) };
   });
+  const brandShipDetail = brandGroups.map((g) => g.items.flatMap(lineShipDetail));
+  const allShipDetail = order.quote.items.flatMap(lineShipDetail);
 
   const renderItem = (item: LineItem) => {
     if (isAccessoryConfig(item.config)) {
       const cfg = item.config;
       const acc = catalog.model(item.productId);
       const img = cfg.image ?? (acc ? catalog.image(acc) : null);
+      // Link the motor name back to the Accessory browser with its row preselected (?sel),
+      // landing on the right brand + category so the row is in the visible list.
+      const accCat = acc ? catalog.category(acc.categoryId) : null;
+      const accHref = acc
+        ? `/catalog/accessories?${new URLSearchParams({
+            ...(accCat?.brandId ? { brand: accCat.brandId } : {}),
+            cat: acc.categoryId,
+            sel: acc.id,
+          }).toString()}`
+        : null;
       return (
         <li key={item.id} className="flex items-start gap-4 px-5 py-3.5">
           {img && (
@@ -107,8 +130,14 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           )}
           <div className="min-w-0 flex-1">
             <div className="text-[13.5px] font-semibold text-ink">
-              {cfg.name}
-              <span className="ml-2 font-normal text-muted">{cfg.brand} · {cfg.sku}</span>
+              {accHref ? (
+                <Link href={accHref} className="hover:text-brass hover:underline">
+                  {cfg.name}
+                </Link>
+              ) : (
+                cfg.name
+              )}
+              <span className="ml-2 font-normal text-muted">{cfg.sku}</span>
             </div>
             <div className="mt-0.5 truncate text-xs text-muted">{cfg.category}</div>
             <AccessoryVariations cfg={cfg} motorQty={item.qty} />
@@ -152,8 +181,15 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     );
   };
 
+  // Right-hand amount text for a shipping line (FOB / charged / free).
+  const shipValueText = (amount: number) =>
+    ship.mode !== "ground" ? "FOB — you arrange" : amount > 0 ? `+${usd(amount)}` : "Free";
+
   // Per-brand totals footer (mirrors the order-level footer, but with this brand's split figures).
-  const brandFooter = (f: { subtotal: number; discount: number; shipping: number; total: number }) => (
+  const brandFooter = (
+    f: { subtotal: number; discount: number; shipping: number; total: number },
+    shipLines: ShipRow[]
+  ) => (
     <div className="space-y-1.5 border-t border-line bg-[#fafaf7] px-5 py-3.5 text-sm">
       <div className="flex justify-between text-muted">
         <span>Subtotal{ship.mode !== "ground" ? " · FOB" : ""}</span>
@@ -165,15 +201,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <span className="tabular-nums">−{usd(f.discount)}</span>
         </div>
       )}
-      <div className="flex justify-between text-muted">
-        <span>
-          Shipping
-          {ship.mode === "ground" && <span className="ml-1 text-muted/80">· {ship.expedite ? "Expedite" : "Ground"}</span>}
-        </span>
-        <span className="tabular-nums">
-          {ship.mode !== "ground" ? "FOB — you arrange" : f.shipping > 0 ? `+${usd(f.shipping)}` : "Free"}
-        </span>
-      </div>
+      <OrderShippingRow
+        ground={ship.mode === "ground"}
+        expedite={ship.expedite}
+        valueText={shipValueText(f.shipping)}
+        lines={shipLines}
+      />
       <div className="flex justify-between pt-0.5 font-semibold text-ink">
         <span>Total{ship.mode !== "ground" ? " · FOB" : ""}</span>
         <span className="tabular-nums">{usd(f.total)}</span>
@@ -283,19 +316,39 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                         · {g.items.length} {g.items.length === 1 ? "item" : "items"}
                       </span>
                     </div>
+                    <a
+                      href={`/purchase-orders/${order.id}?brand=${encodeURIComponent(g.brand)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-ink-soft transition-colors hover:border-ink hover:text-ink"
+                    >
+                      ⬇ Generate purchase order
+                    </a>
                   </div>
                   <ul className="divide-y divide-line/70">{g.items.map(renderItem)}</ul>
-                  {brandFooter(brandFooters[gi])}
+                  {brandFooter(brandFooters[gi], brandShipDetail[gi])}
                 </Card>
               ))}
             </div>
           ) : (
             <Card className="overflow-hidden">
-              <div className="border-b border-line px-5 py-3.5 text-sm font-semibold text-ink">
-                Order contents · from quote{" "}
-                <Link href={`/quotes/${order.quoteId}`} className="text-brass hover:underline">
-                  {order.quote.ref}
-                </Link>
+              <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+                <div className="text-sm font-semibold text-ink">
+                  Order contents · from quote{" "}
+                  <Link href={`/quotes/${order.quoteId}`} className="text-brass hover:underline">
+                    {order.quote.ref}
+                  </Link>
+                </div>
+                {brandGroups[0] && (
+                  <a
+                    href={`/purchase-orders/${order.id}?brand=${encodeURIComponent(brandGroups[0].brand)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-ink-soft transition-colors hover:border-ink hover:text-ink"
+                  >
+                    ⬇ Generate purchase order
+                  </a>
+                )}
               </div>
               <ul className="divide-y divide-line/70">{order.quote.items.map(renderItem)}</ul>
               {showBreakdown ? (
@@ -310,15 +363,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                       <span className="tabular-nums">−{usd(discountAmt)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-muted">
-                    <span>
-                      Shipping
-                      {ship.mode === "ground" && <span className="ml-1 text-muted/80">· {ship.expedite ? "Expedite" : "Ground"}</span>}
-                    </span>
-                    <span className="tabular-nums">
-                      {ship.mode !== "ground" ? "FOB — you arrange" : ship.shipping > 0 ? `+${usd(ship.shipping)}` : "Free"}
-                    </span>
-                  </div>
+                  <OrderShippingRow
+                    ground={ship.mode === "ground"}
+                    expedite={ship.expedite}
+                    valueText={shipValueText(ship.shipping)}
+                    lines={allShipDetail}
+                  />
                   <div className="flex justify-between pt-0.5 font-semibold text-ink">
                     <span>Total{ship.mode !== "ground" ? " · FOB" : ""}</span>
                     <span className="tabular-nums">{usd(orderTotal)}</span>
