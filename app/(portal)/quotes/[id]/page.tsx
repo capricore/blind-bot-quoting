@@ -5,9 +5,11 @@ import { QuoteDetailsDrawer } from "@/components/QuoteDetailsDrawer";
 import { ShippingSummaryRow } from "@/components/ShippingSummaryRow";
 import { ShippingRecalcProvider } from "@/components/ShippingRecalcContext";
 import { AdminExpediteBox } from "@/components/AdminExpediteBox";
+import { ExpediteStatusPoller } from "@/components/ExpediteStatusPoller";
+import { AccessoryLineEditor, type EditorVariation } from "@/components/AccessoryLineEditor";
 import { LineQtyEditor } from "@/components/LineQtyEditor";
 import { Swatch } from "@/components/renders";
-import { BackLink, Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { BackLink, Badge, Card, EmptyState, LinkButton } from "@/components/ui";
 import { QuoteChatLauncher } from "@/components/QuoteChatLauncher";
 import { canAccessOwned, isAdmin, requireUserId, userClient } from "@/lib/auth/user";
 import {
@@ -20,6 +22,8 @@ import {
   getQuoteOwnerId,
   getQuoteExpedite,
   getQuoteExpediteState,
+  expediteSignature,
+  getInventoryMap,
   getRetailerDiscount,
   getShippingWaivers,
   getUnreadCount,
@@ -73,6 +77,12 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   const expedite = await getQuoteExpedite(quote.id, sb);
   const waivers = await getShippingWaivers(ownerId);
   const itemModelMap = await getVariationItemModelMap();
+  // Live stock — for the in-quote qty editors (motors + their per-motor sub-parts).
+  const inventory = await getInventoryMap();
+  const variationStock: Record<string, number | null> = {};
+  for (const [itemId, modelId] of Object.entries(itemModelMap)) {
+    variationStock[itemId] = modelId in inventory ? inventory[modelId] : null;
+  }
   // variation item_id → its source model's shipping rate/mode (for sub-parts like brackets).
   const itemRates: Record<string, MotorRate> = {};
   for (const [itemId, modelId] of Object.entries(itemModelMap)) {
@@ -88,7 +98,13 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
     ground: false,
     expedite: false,
   }).rawAmount;
-  const expediteFee = expediteState.status === "quoted" ? expediteState.fee ?? 0 : 0;
+  // Stale = the quoted fee no longer matches the current contents (fingerprint mismatch). The fee is
+  // withheld from the total and re-confirmation is required; reverting the change makes it match →
+  // restored. A null sig (fee quoted before fingerprints existed) can't be vouched for → treated as
+  // stale, so a re-quote repopulates it and normal behaviour resumes.
+  const expediteStale =
+    expediteState.status === "quoted" && expediteState.sig !== expediteSignature(quote.items);
+  const expediteFee = expediteState.status === "quoted" && !expediteStale ? expediteState.fee ?? 0 : 0;
   const grandTotal = Math.round((netTotal + ship.amount + expediteFee) * 100) / 100;
   // Per-item shipping breakdown (each US-made / ground motor + any US-made variation sub-part).
   const unitOf = (r: MotorRate) => (expedite ? r.shipExpedite ?? 0 : r.shipGround ?? 0);
@@ -143,56 +159,23 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   ].filter(Boolean) as string[];
 
   return (
-    <div>
-      <BackLink href="/quotes">All quotes</BackLink>
-      <PageHeader
-        eyebrow={`Quote · ${fmtDate(quote.createdAt)}`}
-        title={quote.ref}
-        description={quote.projectName ?? undefined}
-        actions={
-          quote.status === "draft" ? (
-            <Badge tone="amber" className="px-3 py-1 text-[13px]">Draft</Badge>
-          ) : (
-            <Badge tone="green" className="px-3 py-1 text-[13px]">Converted</Badge>
-          )
-        }
-      />
-
-      {/* Order-critical header details — customer, ship-to, references */}
-      <Card className="mb-6 px-5 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="grid flex-1 gap-x-8 gap-y-4 sm:grid-cols-3">
-            <DetailBlock label="Customer">
-              {quote.customerName ? (
-                <>
-                  <div className="text-[13.5px] font-medium text-ink">{quote.customerName}</div>
-                  {quote.customerPhone && <div className="text-[12px] text-muted">{quote.customerPhone}</div>}
-                  {quote.customerEmail && <div className="text-[12px] text-muted">{quote.customerEmail}</div>}
-                </>
-              ) : (
-                <span className="text-[12.5px] text-muted">—</span>
-              )}
-            </DetailBlock>
-            <DetailBlock label="Ship to">
-              {shipLines.length ? (
-                shipLines.map((l, i) => (
-                  <div key={i} className="text-[12.5px] text-ink-soft">{l}</div>
-                ))
-              ) : (
-                <span className="text-[12.5px] text-muted">—</span>
-              )}
-            </DetailBlock>
-            <DetailBlock label="References">
-              <Ref label="Sidemark" value={quote.sidemark} />
-              <Ref label="PO" value={quote.po} />
-              <Ref label="Project" value={quote.projectName} />
-            </DetailBlock>
+    // Full-height shell: the line-item list scrolls on its own; the bill on the right stays put.
+    <div className="flex h-[calc(100vh-2.5rem)] flex-col">
+      {/* Slim header — breadcrumb on top; title + status left, meta pushed to the right. */}
+      <div className="mb-4">
+        <BackLink href="/quotes">All quotes</BackLink>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex items-center gap-3">
+            <h1 className="text-[22px] font-semibold tracking-tight text-ink">{quote.ref}</h1>
+            {quote.status === "draft" ? (
+              <Badge tone="amber" className="px-2.5 py-0.5 text-[12px]">Draft</Badge>
+            ) : (
+              <Badge tone="green" className="px-2.5 py-0.5 text-[12px]">Converted</Badge>
+            )}
           </div>
-          {quote.status === "draft" && (
-            <QuoteDetailsDrawer quoteId={quote.id} initial={details} />
-          )}
+          <div className="text-[12.5px] text-ink-soft">{fmtDate(quote.createdAt)}</div>
         </div>
-      </Card>
+      </div>
 
       {quote.items.length === 0 ? (
         <EmptyState
@@ -201,16 +184,49 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
           action={<LinkButton href={`/catalog?quote=${quote.id}`}>Add product</LinkButton>}
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="space-y-4 lg:col-span-2">
-            {quote.status === "draft" && (
-              <div className="flex flex-wrap justify-end gap-2">
-                <LinkButton href={`/catalog?quote=${quote.id}`}>+ Add product</LinkButton>
-                <LinkButton href={`/catalog/accessories?quote=${quote.id}`} variant="secondary">
-                  + Add accessory
-                </LinkButton>
+        <ShippingRecalcProvider>
+        <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          {/* LEFT — details + add buttons stay put; only the line-item list scrolls. */}
+          <div className="flex min-h-0 flex-col gap-4">
+            {/* Order-critical header details — customer, ship-to, references */}
+            <div className="rounded-2xl border border-line bg-surface px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="grid flex-1 gap-x-8 gap-y-4 sm:grid-cols-3">
+                  <DetailBlock label="Customer">
+                    {quote.customerName ? (
+                      <>
+                        <div className="text-[13.5px] font-medium text-ink">{quote.customerName}</div>
+                        {quote.customerPhone && <div className="text-[12px] text-muted">{quote.customerPhone}</div>}
+                        {quote.customerEmail && <div className="text-[12px] text-muted">{quote.customerEmail}</div>}
+                      </>
+                    ) : (
+                      <span className="text-[12.5px] text-muted">—</span>
+                    )}
+                  </DetailBlock>
+                  <DetailBlock label="Ship to">
+                    {shipLines.length ? (
+                      shipLines.map((l, i) => (
+                        <div key={i} className="text-[12.5px] text-ink-soft">{l}</div>
+                      ))
+                    ) : (
+                      <span className="text-[12.5px] text-muted">—</span>
+                    )}
+                  </DetailBlock>
+                  <DetailBlock label="References">
+                    <Ref label="Sidemark" value={quote.sidemark} />
+                    <Ref label="PO" value={quote.po} />
+                    <Ref label="Project" value={quote.projectName} />
+                  </DetailBlock>
+                </div>
+                {quote.status === "draft" && (
+                  <QuoteDetailsDrawer quoteId={quote.id} initial={details} />
+                )}
               </div>
-            )}
+            </div>
+
+            {/* One bordered list with hairline dividers — not a stack of floating cards.
+                Scrolls internally so the details + add buttons above stay fixed. */}
+            <div className="min-h-0 flex-1 divide-y divide-line overflow-y-auto rounded-2xl border border-line bg-surface">
             {quote.items.map((item) => {
               // Accessory line (A-OK motor): fixed price, no color/dimensions.
               if (isAccessoryConfig(item.config)) {
@@ -218,7 +234,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                 const acc = catalog.model(item.productId);
                 const img = cfg.image ?? (acc ? catalog.image(acc) : null);
                 return (
-                  <Card key={item.id} className="px-5 py-4">
+                  <div key={item.id} className="px-5 py-4">
                     <div className="flex gap-4">
                       {img && (
                         /* eslint-disable-next-line @next/next/no-img-element */
@@ -231,18 +247,30 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                             <div className="mt-0.5 text-xs text-muted">
                               {cfg.brand} · {cfg.category} · {cfg.sku}
                             </div>
+                            {quote.status === "draft" &&
+                              (() => {
+                                const s = item.productId in inventory ? inventory[item.productId] : null;
+                                if (s === null) return null;
+                                const tone = s <= 0 ? "text-red-500" : s <= 5 ? "text-amber-600" : "text-muted";
+                                const label =
+                                  s <= 0 ? "Out of stock" : s <= 5 ? `Only ${s} left` : `${s} in stock`;
+                                return <div className={`mt-1 text-[11.5px] font-medium ${tone}`}>{label}</div>;
+                              })()}
                             {cfg.variations?.length ? (
-                              <div className="mt-1 text-[11.5px] text-ink-soft">
-                                {cfg.variations.map((v) => (
-                                  <span key={v.itemId} className="mr-2">
-                                    {v.variationName}:{" "}
-                                    <span className="font-medium">
-                                      {v.itemLabel}
-                                      {(v.qty ?? 1) > 1 ? ` ×${v.qty}/ea` : ""}
+                              // Draft: the editor below renders these with qty steppers + stock.
+                              quote.status === "draft" ? null : (
+                                <div className="mt-1 text-[11.5px] text-ink-soft">
+                                  {cfg.variations.map((v) => (
+                                    <span key={v.itemId} className="mr-2">
+                                      {v.variationName}:{" "}
+                                      <span className="font-medium">
+                                        {v.itemLabel}
+                                        {(v.qty ?? 1) > 1 ? ` ×${v.qty}/ea` : ""}
+                                      </span>
                                     </span>
-                                  </span>
-                                ))}
-                              </div>
+                                  ))}
+                                </div>
+                              )
                             ) : cfg.crownDriver?.mode === "crown-driver" ? (
                               <div className="mt-1 text-[11.5px] text-ink-soft">
                                 Crown: <span className="font-medium">{cfg.crownDriver.crownLabel}</span> · Drive:{" "}
@@ -260,14 +288,26 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                           </div>
                         </div>
                         {quote.status === "draft" && (
-                          <div className="mt-3 flex items-center justify-between">
-                            <LineQtyEditor itemId={item.id} qty={item.qty} />
-                            <RemoveItemButton itemId={item.id} />
-                          </div>
+                          <AccessoryLineEditor
+                            itemId={item.id}
+                            qty={item.qty}
+                            motorStock={item.productId in inventory ? inventory[item.productId] : null}
+                            moq={acc?.moq ?? 0}
+                            variations={(cfg.variations ?? []).map(
+                              (v): EditorVariation => ({
+                                itemId: v.itemId,
+                                variationName: v.variationName,
+                                itemLabel: v.itemLabel,
+                                qty: v.qty ?? 1,
+                                price: v.price ?? 0,
+                                stock: variationStock[v.itemId] ?? null,
+                              })
+                            )}
+                          />
                         )}
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 );
               }
 
@@ -276,18 +316,18 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
               if (!product || !line) {
                 // Catalog product no longer exists — render from the line's stored price only.
                 return (
-                  <Card key={item.id} className="flex items-center justify-between px-5 py-4">
+                  <div key={item.id} className="flex items-center justify-between px-5 py-4">
                     <div>
                       <div className="text-[15px] font-semibold text-ink">Product no longer in catalog</div>
                       <div className="mt-0.5 text-xs text-muted">{item.qty} × {usd(item.computation.unitPrice)}</div>
                     </div>
                     <div className="font-semibold tabular-nums text-ink">{usd(item.computation.unitPrice * item.qty)}</div>
-                  </Card>
+                  </div>
                 );
               }
               const desc = describeConfig(line, product, item.config);
               return (
-                <Card key={item.id} className="px-5 py-4">
+                <div key={item.id} className="px-5 py-4">
                   <div className="flex gap-4">
                     {desc.color && (
                       <Swatch color={desc.color} patternStyle={product.patternStyle} size={72} rounded={16} />
@@ -348,14 +388,19 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                       )}
                     </div>
                   </div>
-                </Card>
+                </div>
               );
             })}
+            </div>
           </div>
 
-          <div>
-            <ShippingRecalcProvider>
-            <div className="sticky top-8 space-y-4">
+          {/* RIGHT — the bill. Sits in its own column so it stays put while the list scrolls. */}
+          <div className="min-h-0 space-y-4 overflow-y-auto">
+              {/* Customer view: auto-refresh while awaiting the admin's expedite price so the fee +
+                  total appear without a manual reload. */}
+              {!viewerIsAdmin && (
+                <ExpediteStatusPoller active={expediteState.status === "requested"} />
+              )}
               <Card className="px-5 py-5">
                 <h3 className="text-sm font-semibold text-ink">Summary</h3>
                 <dl className="mt-3 space-y-2 text-[13px]">
@@ -396,6 +441,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                     lines={shipLineDetail}
                     expediteStatus={expediteState.status}
                     expediteFee={expediteState.fee}
+                    stale={expediteStale}
                   />
                   <div className="flex justify-between border-t border-line pt-2.5 text-[15px]">
                     <dt className="font-semibold text-ink">Total{!ship.hasGround ? " · FOB" : ""}</dt>
@@ -419,7 +465,13 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                   <SubmitPreOrderButton
                     quoteId={quote.id}
                     total={usd(grandTotal)}
-                    blockedReason={expediteState.status === "requested" ? "Awaiting expedite price…" : undefined}
+                    blockedReason={
+                      expediteState.status === "requested"
+                        ? "Awaiting expedite price…"
+                        : expediteStale
+                          ? "Re-confirm expedite price"
+                          : undefined
+                    }
                   />
                   <DeleteDraftButton quoteId={quote.id} />
                 </>
@@ -443,10 +495,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                   Invoice / PDF
                 </LinkButton>
               )}
-            </div>
-            </ShippingRecalcProvider>
           </div>
         </div>
+        </ShippingRecalcProvider>
       )}
 
       {chat && (

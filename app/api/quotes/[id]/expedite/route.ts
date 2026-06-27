@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireQuoteAccess } from "@/lib/auth/api";
 import { admin } from "@/lib/supabase/admin";
-import { usd } from "@/lib/format";
 import {
   cancelExpedite,
   getOrCreateConversationForRetailer,
+  getProduct,
   getQuote,
   getQuoteOwnerId,
   getVariationItemModelMap,
   loadCatalog,
   requestExpedite,
   sendExpediteRequest,
+  type ExpediteLine,
 } from "@/lib/db";
 import { computeShipping, type MotorRate } from "@/lib/shipping";
+import { isAccessoryConfig } from "@/lib/types";
 
 /**
  * Expedite-pricing request lifecycle (owner/admin only, RLS via requireQuoteAccess).
@@ -56,11 +58,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (ownerId) {
       const conv = await getOrCreateConversationForRetailer(ownerId, admin());
       const units = quote.items.reduce((s, i) => s + i.qty, 0);
-      const summary =
-        `Requested expedited shipping for ${quote.ref} — ${quote.items.length} line item` +
-        `${quote.items.length === 1 ? "" : "s"}, ${units} unit${units === 1 ? "" : "s"}, ` +
-        `subtotal ${usd(quote.total)}. System reference: ${usd(refFee)}.`;
-      await sendExpediteRequest(conv.id, ownerId, { id, ref: quote.ref }, summary, refFee, admin());
+      // Snapshot every line's qty + price (and each accessory's sub-parts broken out) so the request
+      // shows the full breakdown even if the quote is edited later (getProduct is a synchronous
+      // static-catalog lookup).
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const lines: ExpediteLine[] = quote.items.map((it) => {
+        // The unit = main product + its per-unit sub-parts; unitPrice is that combined each-price and
+        // qty is how many units were ordered (lineTotal = unitPrice × qty). Sub-parts are listed only
+        // as per-unit composition (e.g. 7 crowns + 3 drives per motor) — not multiplied by order qty.
+        const unitPrice = it.computation.unitPrice;
+        const subs = isAccessoryConfig(it.config)
+          ? (it.config.variations ?? []).map((v) => ({
+              name: `${v.variationName} · ${v.itemLabel}`,
+              qty: v.qty ?? 1,
+              unitPrice: v.price ?? 0,
+            }))
+          : undefined;
+        const name = isAccessoryConfig(it.config) ? it.config.name : getProduct(it.productId)?.name ?? "Item";
+        return { name, qty: it.qty, unitPrice, lineTotal: r2(unitPrice * it.qty), subs };
+      });
+      const summary = `Requested expedited shipping for ${quote.ref}.`;
+      await sendExpediteRequest(
+        conv.id,
+        ownerId,
+        { id, ref: quote.ref },
+        summary,
+        refFee,
+        { items: lines, subtotal: quote.total, units },
+        admin()
+      );
     }
     await requestExpedite(id, sb);
     return NextResponse.json({ ok: true, refFee });

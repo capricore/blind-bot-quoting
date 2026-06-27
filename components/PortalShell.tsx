@@ -40,9 +40,11 @@ export default function PortalShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  // The accessory browser is a wide, dense layout — give it a flush 20px gutter instead of the
-  // centered, max-width content column the other pages use.
-  const fullBleed = pathname?.startsWith("/catalog/accessories") ?? false;
+  // The accessory browser and the quote-detail page are full-height, internally-scrolling layouts —
+  // give them a flush 20px gutter (no centered max-width column, no outer vertical padding that would
+  // break their `h-[calc(100vh-2.5rem)]` math).
+  const fullBleed =
+    (pathname?.startsWith("/catalog/accessories") ?? false) || /^\/quotes\/\d+/.test(pathname ?? "");
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(unreadCount);
   const [supplierPending, setSupplierPending] = useState(supplierPendingCount);

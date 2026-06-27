@@ -12,6 +12,7 @@ import type {
   QuoteRow,
   VariationSnapshot,
 } from "@/lib/types";
+import { isAccessoryConfig } from "@/lib/types";
 import { ITEM_COLS, QUOTE_COLS, round2, type ItemAgg, insertWithRef } from "./internal";
 import { DEMO_RETAILER, ensureSeeded } from "./seed";
 
@@ -135,7 +136,7 @@ export async function removeQuoteItem(itemId: number, sb: SupabaseClient = admin
 /** Update an existing quote line (re-configured product, or just a qty change). */
 export async function updateQuoteItem(
   itemId: number,
-  patch: { config?: ItemConfig; computation?: QuoteComputation; qty?: number },
+  patch: { config?: ItemConfig | AccessoryConfig; computation?: QuoteComputation; qty?: number },
   sb: SupabaseClient = admin()
 ): Promise<void> {
   const cols: Record<string, unknown> = {};
@@ -163,14 +164,16 @@ export async function deleteQuote(quoteId: number, sb: SupabaseClient = admin())
  * Stored in the same quote_items table as full products so it flows through the same
  * quote → pre-order → Excel → tracking pipeline. lineId = "accessory".
  */
-export async function addAccessoryItem(
-  quoteId: number,
+/**
+ * Build the snapshot `config` + `computation` for an accessory line. Per-unit price =
+ * motor base + Σ(sub-part price × its per-motor qty); the line qty multiplies it elsewhere.
+ * Shared by the add and the in-quote edit (qty / sub-part qty) paths so both stay in sync.
+ */
+async function buildAccessoryLine(
   model: AccessoryModel,
-  qty: number,
-  sb: SupabaseClient = admin(),
-  unitPrice?: number,
-  variations: VariationSnapshot[] = []
-): Promise<QuoteItemRow> {
+  unitPrice: number | undefined,
+  variations: VariationSnapshot[]
+): Promise<{ config: AccessoryConfig; computation: QuoteComputation }> {
   const cat = await loadCatalog();
   const brandName = cat.brand.name;
   const category = cat.category(model.categoryId);
@@ -212,6 +215,18 @@ export async function addAccessoryItem(
     ],
     pricingVersion: ACCESSORY_PRICING_VERSION,
   };
+  return { config, computation };
+}
+
+export async function addAccessoryItem(
+  quoteId: number,
+  model: AccessoryModel,
+  qty: number,
+  sb: SupabaseClient = admin(),
+  unitPrice?: number,
+  variations: VariationSnapshot[] = []
+): Promise<QuoteItemRow> {
+  const { config, computation } = await buildAccessoryLine(model, unitPrice, variations);
   const { data, error } = await sb
     .from("quote_items")
     .insert({ quote_id: quoteId, product_id: model.id, line_id: "accessory", qty, config, computation })
@@ -222,6 +237,23 @@ export async function addAccessoryItem(
   return data as unknown as QuoteItemRow;
 }
 
+/**
+ * Re-price an existing accessory line after the customer edits the motor qty and/or the per-motor
+ * sub-part quantities on the quote page. Re-snapshots config + computation so the stored price
+ * always matches the current selection (the client preview is never trusted).
+ */
+export async function updateAccessoryItem(
+  itemId: number,
+  model: AccessoryModel,
+  qty: number,
+  unitPrice: number,
+  variations: VariationSnapshot[],
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  const { config, computation } = await buildAccessoryLine(model, unitPrice, variations);
+  await updateQuoteItem(itemId, { config, computation, qty }, sb);
+}
+
 export async function getQuotes(
   ownerId: string,
   sb: SupabaseClient = admin()
@@ -230,7 +262,7 @@ export async function getQuotes(
   const { data: quotes, error } = await sb
     .from("quotes")
     .select(QUOTE_COLS)
-    .or(`owner_id.eq.${ownerId},owner_id.is.null`)
+    .eq("owner_id", ownerId)
     .order("id", { ascending: false });
   if (error) throw error;
   const { data: items, error: e2 } = await sb.from("quote_items").select("quoteId:quote_id, qty, computation");
@@ -284,16 +316,42 @@ export async function setQuoteExpedite(id: number, expedite: boolean, sb: Supaba
 // per-line auto-accumulation). The new flow: the customer requests expedite, the admin sends one flat
 // fee, and that fee is baked into the quote/order total while status = 'quoted'.
 export type ExpediteStatus = "none" | "requested" | "quoted";
-export type ExpediteState = { status: ExpediteStatus; fee: number | null };
+// sig = the content fingerprint the fee was quoted against (migration 0028). The fee is only valid
+// while the live fingerprint matches; reverting an edit makes it match again → fee restored.
+export type ExpediteState = { status: ExpediteStatus; fee: number | null; sig: string | null };
+
+/**
+ * Deterministic fingerprint of the quote lines the expedite fee depends on: product, qty, unit price
+ * (catches any reconfiguration / price change) and each sub-part's qty. Order-independent so it's
+ * stable across reads, and identical again if the customer reverts a change.
+ */
+export function expediteSignature(items: Pick<QuoteItemRow, "productId" | "qty" | "config" | "computation">[]): string {
+  return items
+    .map((it) => {
+      const vars = isAccessoryConfig(it.config)
+        ? (it.config.variations ?? [])
+            .map((v) => `${v.itemId}x${v.qty ?? 1}`)
+            .sort()
+            .join(",")
+        : "";
+      return `${it.productId}:${it.qty}:${it.computation.unitPrice}:${vars}`;
+    })
+    .sort()
+    .join("|");
+}
 
 /** A quote's expedite request state. Best-effort (returns 'none' before the 0026 migration runs). */
 export async function getQuoteExpediteState(id: number, sb: SupabaseClient = admin()): Promise<ExpediteState> {
-  const { data, error } = await sb.from("quotes").select("expedite_status, expedite_fee").eq("id", id).maybeSingle();
-  if (error || !data) return { status: "none", fee: null };
-  const row = data as { expedite_status: string | null; expedite_fee: number | null };
+  const { data, error } = await sb
+    .from("quotes")
+    .select("expedite_status, expedite_fee, expedite_quoted_sig")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return { status: "none", fee: null, sig: null };
+  const row = data as { expedite_status: string | null; expedite_fee: number | null; expedite_quoted_sig: string | null };
   const status: ExpediteStatus =
     row.expedite_status === "requested" || row.expedite_status === "quoted" ? row.expedite_status : "none";
-  return { status, fee: row.expedite_fee == null ? null : Number(row.expedite_fee) };
+  return { status, fee: row.expedite_fee == null ? null : Number(row.expedite_fee), sig: row.expedite_quoted_sig ?? null };
 }
 
 /** Customer asks for an expedite price → 'requested' (clears any prior fee so it's re-quoted). */
@@ -308,11 +366,14 @@ export async function cancelExpedite(id: number, sb: SupabaseClient = admin()): 
   if (error) throw error;
 }
 
-/** Admin sets the flat expedite fee → 'quoted'. */
-export async function setExpediteQuote(id: number, fee: number, sb: SupabaseClient = admin()): Promise<void> {
+/** Admin sets the flat expedite fee → 'quoted', binding it to the current content fingerprint. */
+export async function setExpediteQuote(id: number, fee: number, sig: string, sb: SupabaseClient = admin()): Promise<void> {
   const f = round2(Number(fee));
   if (!Number.isFinite(f) || f < 0) throw new Error("Enter a valid fee (0 or more).");
-  const { error } = await sb.from("quotes").update({ expedite_status: "quoted", expedite_fee: f }).eq("id", id);
+  const { error } = await sb
+    .from("quotes")
+    .update({ expedite_status: "quoted", expedite_fee: f, expedite_quoted_sig: sig })
+    .eq("id", id);
   if (error) throw error;
 }
 

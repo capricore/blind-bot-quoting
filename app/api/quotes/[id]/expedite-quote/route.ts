@@ -4,7 +4,9 @@ import { getCurrentUserId } from "@/lib/auth/user";
 import { admin } from "@/lib/supabase/admin";
 import { usd } from "@/lib/format";
 import {
+  expediteSignature,
   getOrCreateConversationForRetailer,
+  getQuote,
   getQuoteOwnerId,
   getQuoteRef,
   sendMessage,
@@ -26,7 +28,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const b = await req.json().catch(() => ({}));
     const fee = Number(b?.fee);
 
-    await setExpediteQuote(id, fee, admin());
+    // Bind the fee to the contents it's being priced against (so a later edit marks it stale).
+    const quote = await getQuote(id, admin());
+    const sig = quote ? expediteSignature(quote.items) : "";
+    await setExpediteQuote(id, fee, sig, admin());
     if (typeof b?.messageId === "string" && b.messageId) {
       await setExpediteQuotedFeeOnMessage(b.messageId, Math.round(fee * 100) / 100, admin());
     }

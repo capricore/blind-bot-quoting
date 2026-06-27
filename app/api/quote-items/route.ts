@@ -11,16 +11,18 @@ import {
   getOrCreateDraftQuote,
   getProduct,
   getQuote,
+  getQuoteOwnerId,
   getStock,
   getVariationItemModelMap,
   loadCatalog,
   removeQuoteItem,
   resolveMotorPrice,
   resolveVariationSelections,
+  updateAccessoryItem,
   updateQuoteItem,
 } from "@/lib/db";
 import { computeQuote, PricingError } from "@/lib/pricing";
-import type { ItemConfig, QuoteRow } from "@/lib/types";
+import { isAccessoryConfig, type AccessoryConfig, type ItemConfig, type QuoteRow } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -46,6 +48,31 @@ class PickError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
   }
+}
+
+/**
+ * Each add-on part carries stock (via its source model). Per motor unit it needs `v.qty`, so a line
+ * of `qty` motors needs `qty × v.qty`. Returns a friendly error message if any part is short, else
+ * null. Untracked parts (no inventory row) are unlimited.
+ */
+async function checkSubPartStock(
+  variations: Array<{ itemId: string; itemLabel: string; qty: number }>,
+  qty: number
+): Promise<string | null> {
+  if (!variations.length) return null;
+  const [itemModelMap, inv] = await Promise.all([getVariationItemModelMap(), getInventoryMap()]);
+  for (const v of variations) {
+    const modelId = itemModelMap[v.itemId];
+    const partStock = modelId ? inv[modelId] : undefined;
+    if (partStock === undefined) continue; // untracked
+    const need = qty * v.qty;
+    if (need > partStock) {
+      return partStock === 0
+        ? `${v.itemLabel} is out of stock`
+        : `Only ${partStock} of ${v.itemLabel} in stock (you need ${need})`;
+    }
+  }
+  return null;
 }
 
 export async function POST(req: Request) {
@@ -98,28 +125,8 @@ export async function POST(req: Request) {
           ? body.variationItemIds.map((itemId) => ({ itemId, qty: 1 }))
           : [];
       const variations = await resolveVariationSelections(accessory.id, requested, sb);
-      // Add-on parts carry stock too (via their source model). Total needed per part = motorQty ×
-      // per-motor qty; never let a single add exceed what's available.
-      if (variations.length) {
-        const [itemModelMap, inv] = await Promise.all([getVariationItemModelMap(), getInventoryMap()]);
-        for (const v of variations) {
-          const modelId = itemModelMap[v.itemId];
-          const partStock = modelId ? inv[modelId] : undefined;
-          if (partStock === undefined) continue; // untracked
-          const need = qty * v.qty;
-          if (need > partStock) {
-            return NextResponse.json(
-              {
-                error:
-                  partStock === 0
-                    ? `${v.itemLabel} is out of stock`
-                    : `Only ${partStock} of ${v.itemLabel} in stock (you need ${need})`,
-              },
-              { status: 409 }
-            );
-          }
-        }
-      }
+      const stockErr = await checkSubPartStock(variations, qty);
+      if (stockErr) return NextResponse.json({ error: stockErr }, { status: 409 });
       const quote = await resolveTargetQuote(userId, sb, quoteId);
       // Snapshot this retailer's effective price (override → default → static).
       const unitPrice = await resolveMotorPrice(accessory.id, userId);
@@ -150,14 +157,65 @@ export async function POST(req: Request) {
  */
 export async function PATCH(req: Request) {
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
-    const body = (await req.json()) as { itemId: number; productId?: string; config?: ItemConfig; qty?: number };
+    // Acting-as aware (代下单): an admin editing a retailer's draft uses service_role so RLS doesn't
+    // block the write; a retailer editing their own uses their JWT client so RLS still guards it.
+    const acting = await getActingContext();
+    if (!acting.realUid) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+    const body = (await req.json()) as {
+      itemId: number;
+      productId?: string;
+      config?: ItemConfig;
+      qty?: number;
+      /** Per-sub-part selection with a per-motor quantity (accessory lines only). */
+      variationItems?: Array<{ itemId: string; qty?: number }>;
+    };
     const itemId = Number(body.itemId);
     if (!Number.isInteger(itemId)) return NextResponse.json({ error: "Bad item id" }, { status: 400 });
-    const qty = body.qty != null ? Math.max(1, Math.min(500, Math.round(body.qty))) : undefined;
-    const sb = await userClient();
+    const sb = acting.actingAsId ? admin() : await userClient();
 
+    // Load the line — the select doubles as the ownership guard (RLS-scoped via sb).
+    const { data: existing, error: exErr } = await sb
+      .from("quote_items")
+      .select("product_id, quote_id, config, qty")
+      .eq("id", itemId)
+      .maybeSingle();
+    if (exErr) throw exErr;
+    if (!existing) return NextResponse.json({ error: "Line not found" }, { status: 404 });
+    const row = existing as {
+      product_id: string;
+      quote_id: number;
+      config: ItemConfig | AccessoryConfig;
+      qty: number;
+    };
+
+    // Accessory line: re-price the motor qty and/or per-motor sub-part qtys, enforcing stock.
+    const accessory = isAccessoryConfig(row.config) ? (await loadCatalog()).model(row.product_id) : null;
+    if (accessory) {
+      const cfg = row.config as AccessoryConfig;
+      const moq = accessory.moq ?? 0;
+      const qty = Math.max(Math.max(1, moq), Math.min(500, Math.round(body.qty ?? row.qty)));
+      const stock = await getStock(accessory.id);
+      if (stock !== null && qty > stock) {
+        return NextResponse.json(
+          { error: stock === 0 ? "This motor is out of stock" : `Only ${stock} of this motor left` },
+          { status: 409 }
+        );
+      }
+      // Use the body's per-part qtys when sent; otherwise keep the line's existing selection.
+      const requested = Array.isArray(body.variationItems)
+        ? body.variationItems
+        : (cfg.variations ?? []).map((v) => ({ itemId: v.itemId, qty: v.qty ?? 1 }));
+      const variations = await resolveVariationSelections(accessory.id, requested, sb);
+      const stockErr = await checkSubPartStock(variations, qty);
+      if (stockErr) return NextResponse.json({ error: stockErr }, { status: 409 });
+      const ownerId = await getQuoteOwnerId(row.quote_id);
+      const unitPrice = await resolveMotorPrice(accessory.id, ownerId ?? null);
+      await updateAccessoryItem(itemId, accessory, qty, unitPrice, variations, sb);
+      return NextResponse.json({ ok: true });
+    }
+
+    // Full product: a re-config (re-priced server-side) or just a qty change.
+    const qty = body.qty != null ? Math.max(1, Math.min(500, Math.round(body.qty))) : undefined;
     if (body.config && body.productId) {
       const product = getProduct(body.productId);
       if (!product) return NextResponse.json({ error: "Unknown product" }, { status: 404 });

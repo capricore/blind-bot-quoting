@@ -3,7 +3,7 @@ import { admin } from "@/lib/supabase/admin";
 import type { OrderEventRow, OrderRow, OrderStatus, PaymentMethod } from "@/lib/types";
 import { EVENT_COLS, ORDER_COLS, round2, type ItemAgg, insertWithRef } from "./internal";
 import { ensureSeeded } from "./seed";
-import { getQuote, getQuoteExpedite, getQuoteExpediteState } from "./quotes";
+import { getQuote, getQuoteExpedite, getQuoteExpediteState, expediteSignature } from "./quotes";
 import { getQuoteOwnerId } from "./ownership";
 import { getRetailerDiscount, getShippingWaivers } from "./profile";
 import { deductMotorStock, restoreMotorStock } from "./motors";
@@ -94,6 +94,11 @@ export async function submitPreOrder(
     const exp = await getQuoteExpediteState(quoteId, sb);
     if (exp.status === "requested") {
       throw new Error("Expedited shipping is awaiting our price — you'll be able to pay once we send the quote.");
+    }
+    // If the quoted fee no longer matches the current contents (or was never fingerprinted), it's
+    // stale — re-confirmation required before paying.
+    if (exp.status === "quoted" && exp.sig !== expediteSignature(quote.items)) {
+      throw new Error("The quote changed since the expedited price was set — please re-confirm the expedite price before paying.");
     }
     const expediteFee = exp.status === "quoted" ? round2(exp.fee ?? 0) : 0;
     const amount = round2(net + ship.amount + expediteFee);

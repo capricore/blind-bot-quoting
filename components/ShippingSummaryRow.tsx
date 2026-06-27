@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { usd } from "@/lib/format";
 import { useShippingRecalc } from "./ShippingRecalcContext";
 import { useToast } from "./Toast";
-import { cx, Spinner } from "./ui";
+import { cx } from "./ui";
 
 export type ShipLine = { name: string; qty: number; unit: number; total: number };
 type Waiver = "none" | "threshold" | "retailer";
@@ -28,6 +28,7 @@ export function ShippingSummaryRow({
   lines,
   expediteStatus,
   expediteFee,
+  stale,
 }: {
   quoteId: number;
   editable: boolean;
@@ -39,10 +40,20 @@ export function ShippingSummaryRow({
   lines: ShipLine[];
   expediteStatus: ExpediteStatus;
   expediteFee: number | null;
+  // Quoted fee no longer matches the current quote contents → withheld until re-confirmed.
+  stale: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
   const { pending: busy, setPending: setBusy } = useShippingRecalc();
+  // Two phases keep the pay button disabled continuously: the POST (`submitting`) and the RSC
+  // re-render that follows (`isPending`, via startTransition). Driving the shared flag off BOTH
+  // avoids the flicker where the button briefly re-enables before the new server status arrives.
+  const [submitting, setSubmitting] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  useEffect(() => {
+    setBusy(submitting || isPending);
+  }, [submitting, isPending, setBusy]);
   const [open, setOpen] = useState(false);
   const canExpand = hasGround && lines.length > 0;
   const rawTotal = Math.round(lines.reduce((s, l) => s + l.total, 0) * 100) / 100;
@@ -59,7 +70,7 @@ export function ShippingSummaryRow({
 
   const toggleExpedite = async (next: boolean) => {
     setChecked(next); // optimistic
-    setBusy(true);
+    setSubmitting(true);
     try {
       const r = await fetch(`/api/quotes/${quoteId}/expedite`, {
         method: "POST",
@@ -67,12 +78,13 @@ export function ShippingSummaryRow({
         body: JSON.stringify({ action: next ? "request" : "cancel" }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? "Failed");
-      router.refresh();
+      // Hold the busy flag through the re-render so the button doesn't flash enabled in between.
+      startTransition(() => router.refresh());
     } catch (e) {
       setChecked(!next); // roll back
       toast((e as Error).message, "error");
     } finally {
-      setBusy(false);
+      setSubmitting(false);
     }
   };
 
@@ -118,10 +130,10 @@ export function ShippingSummaryRow({
       </div>
 
       {open && canExpand && (
-        <div className="space-y-1 rounded-md bg-[#faf9f5] px-2.5 py-2 text-[11.5px] text-muted">
+        <div className="space-y-1.5 rounded-md bg-[#faf9f5] px-2.5 py-2 text-[11.5px] text-muted">
           {lines.map((l, i) => (
             <div key={i} className="flex justify-between gap-3">
-              <span className="truncate">
+              <span className="min-w-0 break-words">
                 {l.name} <span className="text-muted/70">· {l.qty} × {usd(l.unit)}</span>
               </span>
               <span className="shrink-0 tabular-nums">{usd(l.total)}</span>
@@ -136,8 +148,8 @@ export function ShippingSummaryRow({
         </div>
       )}
 
-      {/* Quoted expedite fee folds into the total as its own line. */}
-      {expediteStatus === "quoted" && expediteFee != null && (
+      {/* Quoted expedite fee folds into the total as its own line (withheld while stale). */}
+      {expediteStatus === "quoted" && !stale && expediteFee != null && (
         <div className="flex justify-between">
           <dt className="text-muted">Expedited shipping</dt>
           <dd className="font-medium tabular-nums text-ink-soft">+{usd(expediteFee)}</dd>
@@ -146,7 +158,7 @@ export function ShippingSummaryRow({
 
       {hasGround && leadDays != null && (
         <div className="-mt-1 text-[11px] text-muted">
-          {expediteStatus === "quoted" ? "Expedited · " : ""}US-made items · est. arrival ≈ {leadDays} business days
+          {expediteStatus === "quoted" && !stale ? "Expedited · " : ""}US-made items · est. arrival ≈ {leadDays} business days
           {hasFob && " · China-made items ship FOB (freight arranged by you)"}
         </div>
       )}
@@ -164,13 +176,24 @@ export function ShippingSummaryRow({
               className="size-4 rounded border-line accent-ink disabled:opacity-60"
             />
             <span>Request expedited shipping</span>
-            {busy && <Spinner className="text-brass" />}
           </label>
           {checked && expediteStatus === "requested" && (
             <div className="mt-1 pl-6 text-[11px] text-brass">Requested — we&apos;ll send you a price shortly.</div>
           )}
-          {checked && expediteStatus === "quoted" && (
-            <div className="mt-1 pl-6 text-[11px] text-muted">Quoted by our team — included in the total above.</div>
+          {checked && expediteStatus === "quoted" && stale && editable && (
+            <div className="mt-1.5 pl-6">
+              <p className="text-[11px] font-medium text-red-600">
+                Quote changed — re-confirm the expedited price.
+              </p>
+              <button
+                type="button"
+                onClick={() => toggleExpedite(true)}
+                disabled={busy}
+                className="mt-1 rounded-lg border border-red-300 px-2.5 py-1 text-[11.5px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+              >
+                {busy ? "Resending…" : "Resend request"}
+              </button>
+            </div>
           )}
         </div>
       )}

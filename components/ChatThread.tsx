@@ -362,6 +362,7 @@ export function ChatThread({
                         body={m.body}
                         refFee={m.expediteRefFee ?? null}
                         quotedFee={m.expediteQuotedFee ?? null}
+                        meta={m.meta ?? null}
                         role={role}
                       />
                     ) : (

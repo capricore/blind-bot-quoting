@@ -6,7 +6,7 @@ import { useState } from "react";
 import { usd } from "@/lib/format";
 import { useToast } from "./Toast";
 import { cx, Spinner } from "./ui";
-import type { ChatRole } from "@/lib/db";
+import type { ChatRole, ExpediteMeta } from "@/lib/db";
 
 /**
  * An expedite-pricing request rendered inline in the support chat (message kind='expedite_request').
@@ -20,6 +20,7 @@ export function ExpediteRequestCard({
   body,
   refFee,
   quotedFee,
+  meta,
   role,
 }: {
   messageId: string;
@@ -28,6 +29,7 @@ export function ExpediteRequestCard({
   body: string;
   refFee: number | null;
   quotedFee: number | null;
+  meta: ExpediteMeta | null;
   role: ChatRole;
 }) {
   const router = useRouter();
@@ -65,22 +67,56 @@ export function ExpediteRequestCard({
   };
 
   return (
-    <div className="max-w-[340px] rounded-2xl border border-brass/40 bg-brass-soft/40 p-3.5">
+    <div className="w-[340px] max-w-full rounded-2xl border border-brass/40 bg-brass-soft/40 p-3.5">
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-brass">
         <span aria-hidden>⚡</span> Expedited shipping request
       </div>
-      {quoteRef && (
-        quoteId ? (
-          <Link href={`/quotes/${quoteId}`} className="mt-1 inline-block text-[12px] font-medium text-ink hover:text-brass">
-            Re: {quoteRef} →
+      {quoteRef &&
+        (quoteId ? (
+          <Link
+            href={`/quotes/${quoteId}`}
+            className="mt-1 inline-block text-[14px] font-semibold text-ink hover:text-brass"
+          >
+            {quoteRef} →
           </Link>
         ) : (
-          <span className="mt-1 inline-block text-[12px] font-medium text-muted">Re: {quoteRef}</span>
-        )
+          <span className="mt-1 inline-block text-[14px] font-semibold text-muted">{quoteRef}</span>
+        ))}
+
+      {meta?.items?.length ? (
+        <div className="mt-2 divide-y divide-line/60 border-y border-line/60 text-[12px]">
+          {meta.items.map((it, i) => (
+            <div key={i} className="py-1.5">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words text-ink-soft">{it.name}</span>
+                  <span className="text-[11px] text-muted tabular-nums">
+                    {it.qty} × {usd(it.unitPrice)}
+                  </span>
+                </span>
+                <span className="shrink-0 font-medium tabular-nums text-ink-soft">{usd(it.lineTotal)}</span>
+              </div>
+              {it.subs?.map((s, j) => (
+                <div key={j} className="mt-1 pl-3">
+                  <span className="block break-words text-muted">+ {s.name}</span>
+                  <span className="text-[11px] text-muted/70 tabular-nums">
+                    {it.qty} × {s.qty} / unit × {usd(s.unitPrice)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="flex items-center justify-between py-1.5 text-[12px]">
+            <span className="text-muted">Subtotal</span>
+            <span className="font-medium tabular-nums text-ink-soft">{usd(meta.subtotal)}</span>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">{body}</p>
       )}
-      <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">{body}</p>
+
       {refFee != null && (
-        <p className="mt-1.5 text-[11.5px] text-muted">
+        <p className="mt-2 text-[11.5px] text-muted">
           System reference: <span className="font-medium text-ink-soft tabular-nums">{usd(refFee)}</span>
         </p>
       )}

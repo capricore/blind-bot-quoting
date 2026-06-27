@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useShippingRecalc } from "./ShippingRecalcContext";
-import { Button, cx } from "./ui";
+import { Button, cx, Spinner } from "./ui";
 
 export function DeleteDraftButton({ quoteId }: { quoteId: number }) {
   const router = useRouter();
@@ -122,7 +122,15 @@ export function SubmitPreOrderButton({
           disabled={blocked}
           className="w-full py-3"
         >
-          {blockedReason ?? (shippingBusy ? "Updating shipping…" : "Confirm & pay →")}
+          {blockedReason ? (
+            blockedReason
+          ) : shippingBusy ? (
+            <span className="inline-flex items-center gap-2">
+              <Spinner /> Updating…
+            </span>
+          ) : (
+            "Confirm & pay →"
+          )}
         </Button>
         {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
       </div>
@@ -150,7 +158,7 @@ export function SubmitPreOrderButton({
       </div>
       <div className="mt-3 flex gap-2">
         <Button variant="primary" onClick={submit} busy={busy} disabled={shippingBusy} className="py-2">
-          {busy ? "Placing…" : shippingBusy ? "Updating shipping…" : "Place pre-order"}
+          {busy ? "Placing…" : shippingBusy ? "Updating…" : "Place pre-order"}
         </Button>
         <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy} className="py-2">
           Cancel

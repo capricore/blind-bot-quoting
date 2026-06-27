@@ -15,6 +15,20 @@ const SIGNED_URL_TTL = 3600; // 1h — re-signed on every fetch (polling), so sh
 
 export type ChatAttachment = { name: string; type: string; size: number; url: string };
 
+// Line-item snapshot carried by an expedite-request card (messages.meta), so each product's qty +
+// price shows even after the quote is later edited.
+// A sub-part (variation) as PER-UNIT composition: qty is per main unit (not × order qty), unitPrice
+// is its each-price. The dollar value is already folded into the parent line's unitPrice.
+export type ExpediteSub = { name: string; qty: number; unitPrice: number };
+export type ExpediteLine = {
+  name: string;
+  qty: number; // how many of this unit were ordered
+  unitPrice: number; // combined per-unit price (main product + its per-unit sub-parts)
+  lineTotal: number; // unitPrice × qty
+  subs?: ExpediteSub[];
+};
+export type ExpediteMeta = { items: ExpediteLine[]; subtotal: number; units: number };
+
 export type ChatMessage = {
   id: string;
   conversationId: string;
@@ -32,6 +46,7 @@ export type ChatMessage = {
   kind?: ChatKind;
   expediteRefFee?: number | null;
   expediteQuotedFee?: number | null;
+  meta?: ExpediteMeta | null;
 };
 
 /** The quote a message is tagged with — passed to the send helpers from a quote's chat. */
@@ -59,7 +74,7 @@ const CONV_COLS =
   "lastSenderRole:last_sender_role, retailerLastReadAt:retailer_last_read_at, adminLastReadAt:admin_last_read_at";
 const MSG_COLS =
   "id, conversationId:conversation_id, senderId:sender_id, senderRole:sender_role, body, createdAt:created_at, " +
-  "quoteId:quote_id, quoteRef:quote_ref, kind, expediteRefFee:expedite_ref_fee, expediteQuotedFee:expedite_quoted_fee, " +
+  "quoteId:quote_id, quoteRef:quote_ref, kind, expediteRefFee:expedite_ref_fee, expediteQuotedFee:expedite_quoted_fee, meta, " +
   "attachmentPath:attachment_path, attachmentName:attachment_name, attachmentType:attachment_type, attachmentSize:attachment_size";
 
 type RawMessage = Omit<ChatMessage, "attachment"> & {
@@ -202,6 +217,7 @@ export async function sendExpediteRequest(
   quote: QuoteTag,
   body: string,
   refFee: number,
+  meta: ExpediteMeta,
   sb: SupabaseClient = admin()
 ): Promise<ChatMessage> {
   const { data, error } = await sb
@@ -215,6 +231,7 @@ export async function sendExpediteRequest(
       quote_id: quote.id,
       quote_ref: quote.ref,
       expedite_ref_fee: refFee,
+      meta,
     })
     .select(MSG_COLS)
     .single();
