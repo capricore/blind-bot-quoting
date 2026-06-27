@@ -44,13 +44,14 @@ async function motors() {
   const cat = await loadCatalog();
   return cat.categories
     .filter((c) => c.orderable)
-    .flatMap((c) =>
-      cat.modelsIn(c.id).map((m) => ({
-        id: m.id, name: m.name, sku: m.sku, category: c.name, moq: m.moq ?? 0,
+    .flatMap((c) => {
+      const brand = cat.brands.find((b) => b.id === c.brandId)?.name ?? cat.brand.name;
+      return cat.modelsIn(c.id).map((m) => ({
+        id: m.id, name: m.name, sku: m.sku, category: c.name, brand, moq: m.moq ?? 0,
         shipGround: m.shipGround ?? 0, shipExpedite: m.shipExpedite ?? 0,
         shipMode: m.shipMode ?? "fob",
-      }))
-    );
+      }));
+    });
 }
 
 /** Every accessory catalog model with its category — variations can apply to any product. */
@@ -129,6 +130,7 @@ async function ShippingTab() {
     name: m.name,
     sku: m.sku,
     category: m.category,
+    brand: m.brand,
     mode: m.shipMode,
     ground: m.shipGround,
     expedite: m.shipExpedite,

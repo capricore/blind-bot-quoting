@@ -11,6 +11,7 @@ export type ShippingRow = {
   name: string;
   sku: string;
   category: string;
+  brand: string;
   mode: ShippingMode;
   ground: number;
   expedite: number;
@@ -71,6 +72,21 @@ export function MotorShippingEditor({ rows }: { rows: ShippingRow[] }) {
   });
   const canSave = !busy && changed.length > 0;
 
+  // Group rows by brand under one header each. Brands may be interleaved in the input (categories
+  // are sorted by their own `sort`), so accumulate by brand keeping first-seen order — not just
+  // consecutive runs.
+  const groups: { brand: string; rows: ShippingRow[] }[] = [];
+  const byBrand = new Map<string, ShippingRow[]>();
+  for (const r of rows) {
+    let bucket = byBrand.get(r.brand);
+    if (!bucket) {
+      bucket = [];
+      byBrand.set(r.brand, bucket);
+      groups.push({ brand: r.brand, rows: bucket });
+    }
+    bucket.push(r);
+  }
+
   const saveAll = async () => {
     if (changed.length === 0) return;
     setBusy(true);
@@ -125,25 +141,32 @@ export function MotorShippingEditor({ rows }: { rows: ShippingRow[] }) {
         <span>Ground $/unit</span>
         <span>Expedite $/unit</span>
       </div>
-      <ul className="divide-y divide-line/70">
-        {rows.map((r) => {
-          const mode = modes[r.modelId] ?? r.mode;
-          const isGround = mode === "ground";
-          return (
-            <li key={r.modelId} className={`${GRID} items-center py-3`}>
-              <div className="min-w-0">
-                <div className="truncate text-[13.5px] font-semibold text-ink">{r.name}</div>
-                <div className="truncate text-[11px] text-muted">
-                  {r.category} · <span className="font-mono">{r.sku}</span>
-                </div>
-              </div>
-              <ModeToggle mode={mode} onChange={(m) => setMode(r.modelId, m)} />
-              <RateInput value={values[`${r.modelId}:g`] ?? ""} onChange={(v) => setValue(`${r.modelId}:g`, v)} dim={!isGround} />
-              <RateInput value={values[`${r.modelId}:e`] ?? ""} onChange={(v) => setValue(`${r.modelId}:e`, v)} dim={!isGround} />
-            </li>
-          );
-        })}
-      </ul>
+      {groups.map((group) => (
+        <div key={group.brand}>
+          <div className="border-b border-line bg-[#f4f2ec] px-5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-soft">
+            {group.brand}
+          </div>
+          <ul className="divide-y divide-line/70">
+            {group.rows.map((r) => {
+              const mode = modes[r.modelId] ?? r.mode;
+              const isGround = mode === "ground";
+              return (
+                <li key={r.modelId} className={`${GRID} items-center py-3`}>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13.5px] font-semibold text-ink">{r.name}</div>
+                    <div className="truncate text-[11px] text-muted">
+                      {r.category} · <span className="font-mono">{r.sku}</span>
+                    </div>
+                  </div>
+                  <ModeToggle mode={mode} onChange={(m) => setMode(r.modelId, m)} />
+                  <RateInput value={values[`${r.modelId}:g`] ?? ""} onChange={(v) => setValue(`${r.modelId}:g`, v)} dim={!isGround} />
+                  <RateInput value={values[`${r.modelId}:e`] ?? ""} onChange={(v) => setValue(`${r.modelId}:e`, v)} dim={!isGround} />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </Card>
   );
 }

@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { Card, EmptyState, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
 import { ListToolbar } from "@/components/ListToolbar";
-import { requireUserId, userClient } from "@/lib/auth/user";
+import { redirect } from "next/navigation";
+import { userClient } from "@/lib/auth/user";
+import { getActingContext } from "@/lib/auth/acting-as";
+import { admin } from "@/lib/supabase/admin";
 import { getOrders } from "@/lib/db";
 import { fmtDate, ORDER_STATUS_META, usd } from "@/lib/format";
 import { pageSlice, parseListParams, PAGE_SIZE } from "@/lib/list";
@@ -13,8 +16,15 @@ export default async function OrdersPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const ownerId = await requireUserId("/orders");
-  const all = await getOrders(ownerId, await userClient());
+  // Visibility: acting on behalf of a retailer → that retailer's orders; a plain admin → ALL orders
+  // (service_role bypasses RLS for the cross-owner read); a normal retailer → their own (RLS-scoped).
+  const ctx = await getActingContext();
+  if (!ctx.realUid) redirect(`/login?next=${encodeURIComponent("/orders")}`);
+  const all = ctx.actingAsId
+    ? await getOrders(ctx.actingAsId, admin())
+    : ctx.isAdmin
+      ? await getOrders(undefined, admin())
+      : await getOrders(ctx.realUid, await userClient());
   const { q, status, page } = parseListParams(await searchParams);
   const ql = q.toLowerCase();
   const filtered = all.filter(
