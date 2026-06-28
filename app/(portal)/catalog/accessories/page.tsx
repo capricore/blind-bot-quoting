@@ -6,11 +6,13 @@ import { AccessoryToolbar } from "@/components/AccessoryToolbar";
 import { FrequentParts, FrequentPartsToggle, type FrequentPart } from "@/components/FrequentParts";
 import { getEffectiveOwnerId } from "@/lib/auth/acting-as";
 import { getCurrentUserId } from "@/lib/auth/user";
+import { quoteItemsToRefs } from "@/lib/message-items";
 import {
   getAttributes,
   getEffectivePrices,
   getFrequentPartIds,
   getInventoryMap,
+  getQuote,
   getQuotes,
   getModelFilesMap,
   getModelTagMap,
@@ -61,11 +63,19 @@ export default async function AccessoriesPage({
 
   // The current user's open (draft) quotes — offered in the in-page "Add to quote" picker so a
   // motor can be dropped into a quote without leaving the catalog.
-  const draftQuotes = effectiveOwner
-    ? (await getQuotes(effectiveOwner))
-        .filter((qu) => qu.status === "draft" && qu.ownerId === effectiveOwner)
-        .map((qu) => ({ id: qu.id, ref: qu.ref, quoteName: qu.quoteName, projectName: qu.projectName, itemCount: qu.itemCount }))
+  const draftRows = effectiveOwner
+    ? (await getQuotes(effectiveOwner)).filter((qu) => qu.status === "draft" && qu.ownerId === effectiveOwner)
     : [];
+  // Pull each draft's full line items so the picker can expand a quote to show what's already in it.
+  const draftFull = await Promise.all(draftRows.map((qu) => getQuote(qu.id)));
+  const draftQuotes = draftRows.map((qu, i) => ({
+    id: qu.id,
+    ref: qu.ref,
+    quoteName: qu.quoteName,
+    projectName: qu.projectName,
+    itemCount: qu.itemCount,
+    items: quoteItemsToRefs(draftFull[i]?.items ?? [], catalog),
+  }));
 
   // Enrich the frequently-ordered ids with the live catalog; drop any that are gone /
   // no longer orderable / unpriced so we never pin a stale suggestion, then keep the top 3.

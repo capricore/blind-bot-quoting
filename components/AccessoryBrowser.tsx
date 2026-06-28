@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { VariationType } from "@/lib/db";
+import type { MessageItemRef, VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
 import { availableTypes, buildBlockedFromGroups, buildItemNames, disabledFor } from "@/lib/variation-logic";
 import { useToast } from "./Toast";
@@ -29,7 +29,7 @@ export type BrowserModel = {
 };
 
 /** An open (draft) quote offered in the in-page "Add to quote" picker. */
-export type QuoteOpt = { id: number; ref: string; quoteName: string | null; projectName: string | null; itemCount: number };
+export type QuoteOpt = { id: number; ref: string; quoteName: string | null; projectName: string | null; itemCount: number; items: MessageItemRef[] };
 
 /** One unified, full-height panel: a summary list (left) glued to a detail + configure pane
  *  (right). The page constrains the height; both sides scroll internally. */
@@ -214,6 +214,7 @@ function VariationPanel({
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [zoom, setZoom] = useState<string | null>(null);
+  const [expandedQuote, setExpandedQuote] = useState<number | null>(null);
   const [descOpen, setDescOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
 
@@ -543,28 +544,22 @@ function VariationPanel({
                   }}
                   aria-hidden
                 />
-                <div className="absolute bottom-full right-0 z-40 mb-2 max-h-64 w-full overflow-auto rounded-xl border border-line bg-surface p-1 shadow-xl">
-                  {quotes.length > 0 && (
-                    <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Add to existing</div>
-                  )}
-                  {quotes.map((qu) => (
-                    <button
-                      key={qu.id}
-                      onClick={() => doAdd(qu.id)}
-                      className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[#faf9f5]"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[13px] font-medium text-ink">{labelOf(qu)}</span>
-                        <span className="block truncate text-[11px] text-muted">
-                          {qu.quoteName ? `${qu.ref} · ` : ""}
-                          {qu.itemCount} item{qu.itemCount === 1 ? "" : "s"}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
-                  {quotes.length > 0 && <div className="my-1 border-t border-line/70" />}
-                  {creating ? (
-                    <div className="flex items-center gap-1.5 px-2.5 py-2">
+                <div className="absolute bottom-full right-0 z-40 mb-2 max-h-80 w-full overflow-auto rounded-xl border border-line bg-surface p-1 shadow-xl">
+                  <div className="flex items-center justify-between gap-2 px-2 py-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+                      {quotes.length > 0 ? "Add to existing" : "Your quotes"}
+                    </span>
+                    {!creating && (
+                      <button
+                        onClick={() => setCreating(true)}
+                        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-[#faf9f5]"
+                      >
+                        <span className="text-[14px] leading-none text-brass">＋</span> Create
+                      </button>
+                    )}
+                  </div>
+                  {creating && (
+                    <div className="flex items-center gap-1.5 px-2 pb-2 pt-0.5">
                       <input
                         autoFocus
                         value={newName}
@@ -588,14 +583,66 @@ function VariationPanel({
                         Create
                       </Button>
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => setCreating(true)}
-                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:bg-[#faf9f5]"
-                    >
-                      <span className="text-[15px] leading-none text-brass">＋</span> Create new quote
-                    </button>
                   )}
+                  {quotes.map((qu) => {
+                    const open = expandedQuote === qu.id;
+                    return (
+                      <div key={qu.id}>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            onClick={() => doAdd(qu.id)}
+                            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[#faf9f5]"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-[13px] font-medium text-ink">{labelOf(qu)}</span>
+                              <span className="block truncate text-[11px] text-muted">
+                                {qu.quoteName ? `${qu.ref} · ` : ""}
+                                {qu.itemCount} item{qu.itemCount === 1 ? "" : "s"}
+                              </span>
+                            </span>
+                          </button>
+                          {qu.items.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedQuote(open ? null : qu.id)}
+                              aria-label={open ? "Hide items" : "Show items"}
+                              aria-expanded={open}
+                              className="shrink-0 rounded-md p-1.5 text-muted transition-colors hover:bg-[#f4f2ec] hover:text-ink"
+                            >
+                              <svg
+                                viewBox="0 0 16 16"
+                                className={cx("size-3.5 transition-transform", open && "rotate-180")}
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.75"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden
+                              >
+                                <path d="M4 6l4 4 4-4" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                        {open && qu.items.length > 0 && (
+                          <ul className="mb-1 ml-2.5 mr-1 space-y-1 rounded-lg border border-line/70 bg-[#faf9f5] px-2.5 py-2">
+                            {qu.items.map((it, i) => (
+                              <li
+                                key={i}
+                                className={cx("flex items-center gap-2 text-[11.5px] leading-snug", it.sub && "pl-3")}
+                              >
+                                <span className="min-w-0 flex-1 truncate text-ink-soft">
+                                  {it.sub && <span className="text-muted">↳ </span>}
+                                  {it.name}
+                                </span>
+                                <span className="shrink-0 tabular-nums text-muted">×{it.qty}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}
