@@ -19,7 +19,7 @@ import {
   getModelTagMap,
   getProductDefaultsMap,
   getProductVariationMap,
-  getRestrictions,
+  getExclusionGroupsMap,
   getRetailerDiscount,
   getRetailerOverrideMap,
   getShippingWaivers,
@@ -166,14 +166,14 @@ async function TagsTab() {
 }
 
 async function VariationsTab() {
-  const [variations, assignment, defaults, products, restrictions] = await Promise.all([
+  const [variations, assignment, defaults, products, exclusionGroups] = await Promise.all([
     getVariations(),
     getProductVariationMap(),
     getProductDefaultsMap(),
     allProducts(),
-    getRestrictions(),
+    getExclusionGroupsMap(),
   ]);
-  return <VariationsAdmin variations={variations} products={products} assignment={assignment} defaults={defaults} restrictions={restrictions} />;
+  return <VariationsAdmin variations={variations} products={products} assignment={assignment} defaults={defaults} exclusionGroups={exclusionGroups} />;
 }
 
 async function PricingTab({ retailerParam }: { retailerParam?: string }) {

@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { AddAccessoryButton } from "./AccessoryActions";
 import { Card, cx } from "./ui";
-import type { VariationRestriction, VariationType } from "@/lib/db";
+import type { VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
 
 // Open/closed is toggled from the toolbar button; default closed. The choice persists across
@@ -68,12 +68,13 @@ export function FrequentParts({
   parts,
   quoteId,
   variations,
-  restrictions,
+  exclusionGroups,
 }: {
   parts: FrequentPart[];
   quoteId?: number;
   variations: VariationType[];
-  restrictions: VariationRestriction[];
+  /** model_id → exclusion groups (each a list of item ids; at most one per group is pickable). */
+  exclusionGroups: Record<string, string[][]>;
 }) {
   const open = useFrequentPartsOpen();
 
@@ -131,7 +132,7 @@ export function FrequentParts({
                   variations={variations}
                   availableItemIds={p.availableItemIds}
                   defaultItemIds={p.defaultItemIds}
-                  restrictions={restrictions}
+                  exclusionGroups={exclusionGroups}
                   minOrder={p.moq}
                 />
               </div>

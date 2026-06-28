@@ -5,23 +5,19 @@ import {
   createVariationType,
   deleteVariationItem,
   deleteVariationType,
+  setModelExclusionGroups,
   setProductVariationItems,
-  setVariationPairRestrictions,
   updateVariationItem,
   updateVariationType,
 } from "@/lib/db";
 
-type Entity = "type" | "item" | "assignment" | "restriction";
+type Entity = "type" | "item" | "assignment" | "exclusion-group";
 const isEntity = (e: unknown): e is Entity =>
-  e === "type" || e === "item" || e === "assignment" || e === "restriction";
+  e === "type" || e === "item" || e === "assignment" || e === "exclusion-group";
 
-/** Coerce `blockedPairs` payload into validated [string, string] tuples. */
-const asPairs = (v: unknown): [string, string][] =>
-  Array.isArray(v)
-    ? v.flatMap((p) =>
-        Array.isArray(p) && p.length === 2 && p[0] && p[1] ? [[String(p[0]), String(p[1])]] as [string, string][] : []
-      )
-    : [];
+/** Coerce a `groups` payload into validated string[][] (each group a list of item ids). */
+const asGroups = (v: unknown): string[][] =>
+  Array.isArray(v) ? v.filter(Array.isArray).map((g) => (g as unknown[]).map(String).filter(Boolean)) : [];
 
 const asPrice = (v: unknown): number => {
   const n = Number(v);
@@ -37,8 +33,8 @@ export async function POST(req: Request) {
     if (!isEntity(b.entity)) return NextResponse.json({ error: "Unknown entity" }, { status: 400 });
     if (b.entity === "type") await createVariationType(String(b.name ?? ""), b.pairGroup ?? null);
     else if (b.entity === "item") await createVariationItem(String(b.variationId ?? ""), String(b.name ?? ""), asPrice(b.price), b.image ?? null);
-    else if (b.entity === "restriction")
-      await setVariationPairRestrictions(String(b.variationA ?? ""), String(b.variationB ?? ""), asPairs(b.blockedPairs));
+    else if (b.entity === "exclusion-group")
+      await setModelExclusionGroups(String(b.modelId ?? ""), asGroups(b.groups));
     else
       await setProductVariationItems(
         String(b.modelId ?? ""),

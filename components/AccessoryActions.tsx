@@ -3,27 +3,26 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { stashPendingItem } from "@/lib/pending-item";
-import type { VariationRestriction, VariationType } from "@/lib/db";
+import type { VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
+import { availableTypes, buildBlockedFromGroups, buildItemNames, disabledFor } from "@/lib/variation-logic";
 import { Button, cx } from "./ui";
 
-/** Pick one item of a variation. Items with images render as visual cards (tap 🔍 to zoom);
- *  otherwise a text dropdown. `allowNone` adds a "None" choice (independent variations).
- *  `disabled` items are incompatible with the current selection elsewhere and can't be picked;
- *  `disabledReason` maps an item id → the conflicting option's name, shown on hover. */
+/** Multi-select the items of a variation. Items with images render as visual cards (tap 🔍 to zoom);
+ *  otherwise as text chips. `values` are the currently-selected ids; `onToggle` flips one. Items in
+ *  `disabled` share an exclusion group with a current pick and can't be added; `disabledReason` maps
+ *  an item id → the conflicting option's name, shown on hover. */
 export function VariationPicker({
   type,
-  value,
-  onChange,
-  allowNone,
+  values,
+  onToggle,
   onZoom,
   disabled,
   disabledReason,
 }: {
   type: VariationType;
-  value: string;
-  onChange: (v: string) => void;
-  allowNone: boolean;
+  values: string[];
+  onToggle: (id: string) => void;
   onZoom: (url: string) => void;
   disabled: Set<string>;
   disabledReason: Record<string, string>;
@@ -32,21 +31,27 @@ export function VariationPicker({
   const hasImages = type.items.some((i) => i.image);
   if (!hasImages) {
     return (
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-ink"
-      >
-        {allowNone && <option value="">— None —</option>}
+      <div className="flex flex-wrap gap-1.5">
         {type.items.map((it) => {
-          const off = disabled.has(it.id);
+          const sel = values.includes(it.id);
+          const off = disabled.has(it.id) && !sel;
           return (
-            <option key={it.id} value={it.id} disabled={off}>
-              {it.name}{it.price ? ` (+${usd(it.price)})` : ""}{off ? " — unavailable with current selection" : ""}
-            </option>
+            <button
+              key={it.id}
+              type="button"
+              disabled={off}
+              onClick={() => onToggle(it.id)}
+              title={off ? reason(it.id) : undefined}
+              className={cx(
+                "rounded-full border px-2.5 py-1 text-[12px] transition-colors",
+                off ? "cursor-not-allowed border-line opacity-40" : sel ? "border-ink bg-ink text-white" : "border-line bg-surface text-ink-soft hover:border-ink"
+              )}
+            >
+              {it.name}{it.price ? ` (+${usd(it.price)})` : ""}
+            </button>
           );
         })}
-      </select>
+      </div>
     );
   }
   const cardCx = (sel: boolean, off: boolean) =>
@@ -56,20 +61,15 @@ export function VariationPicker({
     );
   return (
     <div className="flex flex-wrap gap-2">
-      {allowNone && (
-        <button type="button" onClick={() => onChange("")} className={cx(cardCx(value === "", false), "flex h-[104px] items-center justify-center text-[12px] text-muted")}>
-          None
-        </button>
-      )}
       {type.items.map((it) => {
-        const sel = value === it.id;
-        const off = disabled.has(it.id);
+        const sel = values.includes(it.id);
+        const off = disabled.has(it.id) && !sel;
         return (
           <button
             key={it.id}
             type="button"
             disabled={off}
-            onClick={() => !off && onChange(it.id)}
+            onClick={() => !off && onToggle(it.id)}
             title={off ? reason(it.id) : undefined}
             className={cardCx(sel, off)}
           >
@@ -100,7 +100,7 @@ export function VariationPicker({
   );
 }
 
-/** Add a product to a quote — qty + any variation choices (Crown+Drive paired), capped at stock. */
+/** Add a product to a quote — qty + any (multi-select) variation choices, capped at stock. */
 export function AddAccessoryButton({
   modelId,
   quoteId,
@@ -108,7 +108,7 @@ export function AddAccessoryButton({
   variations = [],
   availableItemIds = [],
   defaultItemIds = [],
-  restrictions = [],
+  exclusionGroups = {},
   minOrder = 0,
 }: {
   modelId: string;
@@ -120,8 +120,8 @@ export function AddAccessoryButton({
   availableItemIds?: string[];
   /** variation item ids pre-selected by default */
   defaultItemIds?: string[];
-  /** item↔item incompatibility pairs (selecting one greys out the other) */
-  restrictions?: VariationRestriction[];
+  /** model_id → exclusion groups (each a list of item ids; at most one per group is pickable) */
+  exclusionGroups?: Record<string, string[][]>;
   /** minimum order quantity (0 = none); the qty stepper can't go below it */
   minOrder?: number;
 }) {
@@ -133,89 +133,50 @@ export function AddAccessoryButton({
   const [modal, setModal] = useState(false);
   const [zoom, setZoom] = useState<string | null>(null);
 
-  // Variation types available for this product (only assigned items), grouped.
-  const avail = useMemo(
-    () =>
-      variations
-        .map((t) => ({ ...t, items: t.items.filter((i) => availableItemIds.includes(i.id)) }))
-        .filter((t) => t.items.length > 0),
-    [variations, availableItemIds]
-  );
-  const pairGroups = useMemo(() => {
-    const m = new Map<string, VariationType[]>();
-    for (const t of avail) if (t.pairGroup) (m.get(t.pairGroup) ?? m.set(t.pairGroup, []).get(t.pairGroup)!).push(t);
-    return [...m.values()];
-  }, [avail]);
-  const independents = useMemo(() => avail.filter((t) => !t.pairGroup), [avail]);
+  // Variation types available for this product (only assigned items).
+  const avail = useMemo(() => availableTypes(variations, availableItemIds), [variations, availableItemIds]);
   const hasVariations = avail.length > 0;
 
-  // Selection state: a chosen item per type ("" = none), plus a per-group on/off toggle.
-  // Seeded from the product's admin-set defaults (e.g. AM25 → a specific Crown + Drive).
-  const [pick, setPick] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      avail.map((t) => {
-        const def = t.items.find((i) => defaultItemIds.includes(i.id));
-        return [t.id, def ? def.id : t.pairGroup ? t.items[0]?.id ?? "" : ""];
-      })
-    )
-  );
-  const [groupOn, setGroupOn] = useState<Record<string, boolean>>(() => {
-    const on: Record<string, boolean> = {};
-    for (const t of avail) if (t.pairGroup && t.items.some((i) => defaultItemIds.includes(i.id))) on[t.pairGroup] = true;
-    return on;
+  const blocked = useMemo(() => buildBlockedFromGroups(exclusionGroups[modelId] ?? []), [exclusionGroups, modelId]);
+  const itemName = useMemo(() => buildItemNames(avail), [avail]);
+
+  // Multi-select per type: each type holds a list of chosen item ids ([] = none). Seeded with the
+  // product's admin-set defaults, skipping any default that would conflict with one already seeded
+  // (an exclusion group only permits one), so the initial selection is always valid.
+  const [pick, setPick] = useState<Record<string, string[]>>(() => {
+    const p: Record<string, string[]> = {};
+    const chosen = new Set<string>();
+    const compatible = (id: string) => {
+      const c = blocked.get(id);
+      if (!c) return true;
+      for (const x of chosen) if (c.has(x)) return false;
+      return true;
+    };
+    for (const t of avail) {
+      const ids: string[] = [];
+      for (const i of t.items)
+        if (defaultItemIds.includes(i.id) && compatible(i.id)) {
+          ids.push(i.id);
+          chosen.add(i.id);
+        }
+      p[t.id] = ids;
+    }
+    return p;
   });
 
-  // Bidirectional incompatibility map: item id → set of item ids it can't be combined with.
-  const blocked = useMemo(() => {
-    const m = new Map<string, Set<string>>();
-    const add = (a: string, b: string) => (m.get(a) ?? m.set(a, new Set()).get(a)!).add(b);
-    for (const r of restrictions) { add(r.itemLo, r.itemHi); add(r.itemHi, r.itemLo); }
-    return m;
-  }, [restrictions]);
-  const itemName = useMemo(() => {
-    const n: Record<string, string> = {};
-    for (const t of avail) for (const i of t.items) n[i.id] = i.name;
-    return n;
-  }, [avail]);
+  const selectedIds = avail.flatMap((t) => pick[t.id] ?? []);
+  const selectedSet = new Set(selectedIds);
 
-  // A type's pick only "counts" for conflicts when it's actually in play (independent, or its
-  // paired group is toggled on). This is also what's collected at submit time.
-  const activePick = (t: VariationType): string => {
-    if (t.pairGroup && !groupOn[t.pairGroup]) return "";
-    return pick[t.id] ?? "";
-  };
-
-  // Items of `type` that conflict with another type's active pick → greyed out, with the
-  // conflicting option's name for the tooltip.
-  const disabledFor = (type: VariationType): { ids: Set<string>; reason: Record<string, string> } => {
-    const ids = new Set<string>();
-    const reason: Record<string, string> = {};
-    for (const other of avail) {
-      if (other.id === type.id) continue;
-      const chosen = activePick(other);
-      if (!chosen) continue;
-      const conflicts = blocked.get(chosen);
-      if (!conflicts) continue;
-      for (const it of type.items) if (conflicts.has(it.id)) { ids.add(it.id); reason[it.id] = itemName[chosen] ?? "your current selection"; }
-    }
-    return { ids, reason };
-  };
-
-  // Pick an item, then drop any now-incompatible pick in another type so the user is never
-  // wedged into an invalid pair (the conflicting side clears and re-opens for a fresh choice).
+  // Toggle an item within a type. Adding one drops any selected item (any type) sharing an
+  // exclusion group with it, so the user is never wedged into an invalid combination.
   const choose = (typeId: string, itemId: string) =>
     setPick((prev) => {
-      const next = { ...prev, [typeId]: itemId };
-      if (itemId) {
-        const conflicts = blocked.get(itemId);
-        if (conflicts) {
-          for (const other of avail) {
-            if (other.id === typeId) continue;
-            if (other.pairGroup && !groupOn[other.pairGroup]) continue;
-            if (next[other.id] && conflicts.has(next[other.id])) next[other.id] = "";
-          }
-        }
-      }
+      const cur = prev[typeId] ?? [];
+      if (cur.includes(itemId)) return { ...prev, [typeId]: cur.filter((x) => x !== itemId) };
+      const conflicts = blocked.get(itemId);
+      const next: Record<string, string[]> = {};
+      for (const [tid, ids] of Object.entries(prev)) next[tid] = conflicts ? ids.filter((id) => !conflicts.has(id)) : ids;
+      next[typeId] = [...(next[typeId] ?? []), itemId];
       return next;
     });
 
@@ -234,7 +195,7 @@ export function AddAccessoryButton({
           body: JSON.stringify({ productId: modelId, qty, quoteId, variationItemIds }),
         });
         if (r.status === 401) {
-          window.location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
+          window.location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
           return;
         }
         const data = await r.json();
@@ -251,32 +212,13 @@ export function AddAccessoryButton({
     router.push("/quotes/new");
   };
 
-  const collectIds = (): string[] => {
-    const ids: string[] = [];
-    for (const group of pairGroups) {
-      const key = group[0].pairGroup!;
-      if (groupOn[key]) for (const t of group) if (pick[t.id]) ids.push(pick[t.id]);
-    }
-    for (const t of independents) if (pick[t.id]) ids.push(pick[t.id]);
-    return ids;
-  };
-
   const onAdd = () => {
     if (hasVariations) setModal(true);
     else submit([]);
   };
 
-  const confirmModal = () => {
-    // Paired groups: if on, every type must have a pick (dropdowns default to the first item).
-    for (const group of pairGroups) {
-      const key = group[0].pairGroup!;
-      if (groupOn[key] && group.some((t) => !pick[t.id])) {
-        setError(`Pick a ${group.map((t) => t.name).join(" and ")}`);
-        return;
-      }
-    }
-    submit(collectIds());
-  };
+  // Variations are all optional — submit whatever's selected (may be none).
+  const confirmModal = () => submit(selectedIds);
 
   if (outOfStock) return <span className="text-[11px] font-medium text-red-500">Out of stock</span>;
 
@@ -328,41 +270,20 @@ export function AddAccessoryButton({
             <p className="mt-1 text-[12.5px] text-muted">Choose variations for this product, or skip.</p>
 
             <div className="mt-4 space-y-4">
-              {/* paired groups (Crown + Drive) — added together or not at all */}
-              {pairGroups.map((group) => {
-                const key = group[0].pairGroup!;
-                const on = !!groupOn[key];
-                const title = group.map((t) => t.name).join(" + ");
-                return (
-                  <div key={key} className="rounded-xl border border-line p-3">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-ink">
-                      <input type="checkbox" checked={on} onChange={(e) => setGroupOn((g) => ({ ...g, [key]: e.target.checked }))} />
-                      Add {title}
-                    </label>
-                    {on && (
-                      <div className="mt-3 space-y-3">
-                        {group.map((t) => {
-                          const d = disabledFor(t);
-                          return (
-                            <div key={t.id}>
-                              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
-                              <VariationPicker type={t} value={pick[t.id] ?? ""} onChange={(v) => choose(t.id, v)} allowNone={false} onZoom={setZoom} disabled={d.ids} disabledReason={d.reason} />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* independent variations — each optional */}
-              {independents.map((t) => {
-                const d = disabledFor(t);
+              {/* Each type is an optional multi-select; exclusion groups grey out conflicting items. */}
+              {avail.map((t) => {
+                const d = disabledFor(t, selectedSet, blocked, itemName);
                 return (
                   <div key={t.id}>
                     <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
-                    <VariationPicker type={t} value={pick[t.id] ?? ""} onChange={(v) => choose(t.id, v)} allowNone onZoom={setZoom} disabled={d.ids} disabledReason={d.reason} />
+                    <VariationPicker
+                      type={t}
+                      values={pick[t.id] ?? []}
+                      onToggle={(v) => choose(t.id, v)}
+                      onZoom={setZoom}
+                      disabled={d.ids}
+                      disabledReason={d.reason}
+                    />
                   </div>
                 );
               })}

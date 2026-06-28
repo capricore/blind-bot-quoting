@@ -13,7 +13,6 @@ import {
   LayoutDashboard,
   LogOut,
   type LucideIcon,
-  MapPin,
   MessageSquare,
   Package,
   Settings,
@@ -256,18 +255,6 @@ export default function Sidebar({
             >
               <KeyRound className="size-[18px] text-muted" strokeWidth={1.75} />
               Change password
-            </Link>
-            <div className="h-px bg-black/[0.06]" />
-            <Link
-              href="/account#address-book"
-              onClick={() => {
-                setMenuOpen(false);
-                onClose();
-              }}
-              className="flex items-center gap-3 px-4 py-3 text-[13.5px] font-medium text-ink transition-colors hover:bg-black/[0.04]"
-            >
-              <MapPin className="size-[18px] text-muted" strokeWidth={1.75} />
-              Address book
             </Link>
             <div className="h-px bg-black/[0.06]" />
             <button

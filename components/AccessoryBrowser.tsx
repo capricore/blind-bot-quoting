@@ -2,9 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { VariationRestriction, VariationType } from "@/lib/db";
+import type { VariationType } from "@/lib/db";
 import { usd } from "@/lib/format";
-import { availableTypes, buildBlocked, buildItemNames, disabledFor } from "@/lib/variation-logic";
+import { availableTypes, buildBlockedFromGroups, buildItemNames, disabledFor } from "@/lib/variation-logic";
 import { useToast } from "./Toast";
 import { Button, cx } from "./ui";
 
@@ -36,14 +36,15 @@ export type QuoteOpt = { id: number; ref: string; quoteName: string | null; proj
 export function AccessoryBrowser({
   models,
   variations,
-  restrictions,
+  exclusionGroups,
   variationStock,
   quotes,
   showCategory,
 }: {
   models: BrowserModel[];
   variations: VariationType[];
-  restrictions: VariationRestriction[];
+  /** model_id → exclusion groups (each a list of item ids; at most one per group is pickable). */
+  exclusionGroups: Record<string, string[][]>;
   /** add-on part item id → stock (null = untracked) */
   variationStock: Record<string, number | null>;
   /** the user's open draft quotes (for the in-page picker) */
@@ -137,10 +138,10 @@ export function AccessoryBrowser({
       {selected && (
         <div className="flex flex-[1.4] min-w-0 flex-col border-l border-line">
           <VariationPanel
+            exclusionGroups={exclusionGroups}
             key={selected.id}
             model={selected}
             variations={variations}
-            restrictions={restrictions}
             variationStock={variationStock}
             quotes={quotes}
             onClose={() => setPicked(null)}
@@ -186,14 +187,14 @@ function Stepper({ value, min, max, onChange }: { value: number; min: number; ma
 function VariationPanel({
   model,
   variations,
-  restrictions,
+  exclusionGroups,
   variationStock,
   quotes,
   onClose,
 }: {
   model: BrowserModel;
   variations: VariationType[];
-  restrictions: VariationRestriction[];
+  exclusionGroups: Record<string, string[][]>;
   variationStock: Record<string, number | null>;
   quotes: QuoteOpt[];
   onClose: () => void;
@@ -217,7 +218,7 @@ function VariationPanel({
   const [tagsOpen, setTagsOpen] = useState(false);
 
   const avail = useMemo(() => availableTypes(variations, model.availableItemIds), [variations, model.availableItemIds]);
-  const blocked = useMemo(() => buildBlocked(restrictions), [restrictions]);
+  const blocked = useMemo(() => buildBlockedFromGroups(exclusionGroups[model.id] ?? []), [exclusionGroups, model.id]);
   const itemName = useMemo(() => buildItemNames(avail), [avail]);
   const priceOf = useMemo(() => {
     const m: Record<string, number> = {};
@@ -225,12 +226,12 @@ function VariationPanel({
     return m;
   }, [avail]);
 
-  // Single-select per type (one item per CROWN / DRIVE …). "" = none. Initial state defaults to
-  // one pick per type — the admin default if set, else the first in-stock, non-conflicting item.
-  // Not mandatory: the user can Clear any of them.
-  const [pick, setPick] = useState<Record<string, string>>(() => {
-    const p: Record<string, string> = {};
-    const chosen = new Set<string>(); // already-seeded ids, for the 互斥 (mutual-exclusion) check
+  // Multi-select per type: each type holds a list of chosen item ids ([] = none). Initial state
+  // seeds one pick per type — the admin default if set, else the first in-stock, non-conflicting
+  // item. Not mandatory: the user can Clear any of them, and pick several within a type.
+  const [pick, setPick] = useState<Record<string, string[]>>(() => {
+    const p: Record<string, string[]> = {};
+    const chosen = new Set<string>(); // already-seeded ids, for the exclusion-group check
     const inStock = (id: string) => {
       const s = variationStock[id];
       return s === undefined || s === null || s > 0;
@@ -245,7 +246,7 @@ function VariationPanel({
       const def = t.items.find((i) => model.defaultItemIds.includes(i.id));
       const fallback = t.items.find((i) => inStock(i.id) && compatible(i.id));
       const id = def?.id ?? fallback?.id ?? "";
-      p[t.id] = id;
+      p[t.id] = id ? [id] : [];
       if (id) chosen.add(id);
     }
     return p;
@@ -260,20 +261,25 @@ function VariationPanel({
     return s === undefined ? null : s;
   };
 
-  // Select (or clear, itemId="") within a type. No pairing; a now-incompatible pick in another
-  // type drops out (互斥). Out-of-stock items can't be picked.
-  const choose = (typeId: string, itemId: string) => {
-    if (itemId && (stockOf(itemId) ?? Infinity) <= 0) return;
+  // Toggle an item within a type (multi-select). Adding an item drops any currently-selected item
+  // (in any type) that shares an exclusion group with it. Out-of-stock items can't be picked.
+  const toggle = (typeId: string, itemId: string) => {
     setPick((prev) => {
-      const next = { ...prev, [typeId]: itemId };
-      const conflicts = itemId ? blocked.get(itemId) : undefined;
-      if (conflicts) for (const other of avail) if (other.id !== typeId && next[other.id] && conflicts.has(next[other.id])) next[other.id] = "";
+      const cur = prev[typeId] ?? [];
+      if (cur.includes(itemId)) return { ...prev, [typeId]: cur.filter((x) => x !== itemId) };
+      if ((stockOf(itemId) ?? Infinity) <= 0) return prev;
+      const conflicts = blocked.get(itemId);
+      const next: Record<string, string[]> = {};
+      for (const [tid, ids] of Object.entries(prev)) next[tid] = conflicts ? ids.filter((id) => !conflicts.has(id)) : ids;
+      next[typeId] = [...(next[typeId] ?? []), itemId];
       return next;
     });
   };
+  const clearType = (typeId: string) => setPick((prev) => ({ ...prev, [typeId]: [] }));
 
-  // Currently picked item ids (one per type).
-  const selectedIds = avail.map((t) => pick[t.id]).filter(Boolean) as string[];
+  // Currently picked item ids, flattened across all types.
+  const selectedIds = avail.flatMap((t) => pick[t.id] ?? []);
+  const selectedSet = new Set(selectedIds);
 
   // A picked part whose total need (motorQty × per-motor qty) exceeds its stock.
   const oversold = useMemo(() => {
@@ -445,34 +451,37 @@ function VariationPanel({
               </div>
 
               {avail.map((t) => {
-                const d = disabledFor(t, avail, (x) => pick[x.id] ?? "", blocked, itemName);
-                const sel = pick[t.id] ?? "";
+                const d = disabledFor(t, selectedSet, blocked, itemName);
+                const sel = pick[t.id] ?? [];
                 return (
                   <div key={t.id}>
                     <div className="mb-0.5 flex items-center justify-between">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{t.name}</span>
-                      {sel && (
-                        <button onClick={() => choose(t.id, "")} className="text-[10.5px] font-medium text-muted hover:text-ink">
+                      {sel.length > 0 && (
+                        <button onClick={() => clearType(t.id)} className="text-[10.5px] font-medium text-muted hover:text-ink">
                           Clear
                         </button>
                       )}
                     </div>
                     <div>
-                      {t.items.map((it) => (
-                        <OptionRow
-                          key={it.id}
-                          item={it}
-                          selected={sel === it.id}
-                          disabled={d.ids.has(it.id) && sel !== it.id}
-                          reason={d.reason[it.id]}
-                          stock={stockOf(it.id)}
-                          oversold={oversold.has(it.id)}
-                          qty={qtyOf(it.id)}
-                          onToggle={() => choose(t.id, sel === it.id ? "" : it.id)}
-                          onQty={(n) => setQty(it.id, n)}
-                          onZoom={setZoom}
-                        />
-                      ))}
+                      {t.items.map((it) => {
+                        const selected = sel.includes(it.id);
+                        return (
+                          <OptionRow
+                            key={it.id}
+                            item={it}
+                            selected={selected}
+                            disabled={d.ids.has(it.id) && !selected}
+                            reason={d.reason[it.id]}
+                            stock={stockOf(it.id)}
+                            oversold={oversold.has(it.id)}
+                            qty={qtyOf(it.id)}
+                            onToggle={() => toggle(t.id, it.id)}
+                            onQty={(n) => setQty(it.id, n)}
+                            onZoom={setZoom}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -647,8 +656,13 @@ function OptionRow({
         blocked ? "cursor-not-allowed opacity-40" : selected ? "cursor-pointer bg-[#fbf8f1]" : "cursor-pointer hover:bg-[#faf9f5]"
       )}
     >
-      <span className={cx("flex size-[18px] shrink-0 items-center justify-center rounded-full border", selected ? "border-ink" : "border-line")}>
-        {selected && <span className="size-2.5 rounded-full bg-ink" />}
+      {/* Square checkbox (multi-select): several items per type can be chosen. */}
+      <span className={cx("flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border", selected ? "border-ink bg-ink" : "border-line")}>
+        {selected && (
+          <svg viewBox="0 0 24 24" className="size-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 13l4 4L19 7" />
+          </svg>
+        )}
       </span>
       {item.image ? (
         <div className="relative shrink-0">

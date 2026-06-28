@@ -257,6 +257,9 @@ export async function deleteModel(
   await sb.from("accessory_prices").delete().eq("model_id", id);
   await sb.from("accessory_model_tags").delete().eq("model_id", id);
   await sb.from("variation_product_items").delete().eq("model_id", id);
+  // Exclusion groups DO cascade from accessory_models (0038), but delete explicitly per convention
+  // (their group_items rows cascade from the group delete).
+  await sb.from("variation_exclusion_groups").delete().eq("model_id", id);
   // Attachment rows cascade via FK; remove their storage objects too (not covered by cascade).
   const { data: files } = await sb.from("accessory_model_files").select("path").eq("model_id", id);
   const paths = ((files ?? []) as { path: string }[]).map((f) => f.path);

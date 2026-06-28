@@ -17,11 +17,13 @@ export type VariationSelection = {
   /** How many of this sub-part per parent motor unit (THE-772). */
   qty: number;
 };
-/** A pair of variation items that cannot be selected together (symmetric; itemLo < itemHi). */
-export type VariationRestriction = { itemLo: string; itemHi: string };
-
-/** Canonical (lo, hi) ordering for a symmetric item pair. */
-const pairKey = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
+/**
+ * A per-model exclusion group: a set of variation item ids of which at most ONE may be picked in a
+ * config (the selected items are mutually exclusive). A model can have several groups, and a group
+ * may span variation types (some Crowns + some Drives together). Supersedes the global pairwise
+ * VariationRestriction (migration 0038).
+ */
+export type ExclusionGroup = { id: string; modelId: string; itemIds: string[] };
 
 const TYPE_COLS = "id, name, pairGroup:pair_group, sort";
 const ITEM_COLS = "id, variationId:variation_id, name, price, sort, image:image_url";
@@ -91,60 +93,68 @@ export async function getProductDefaultsMap(sb: SupabaseClient = admin()): Promi
   return map;
 }
 
-/** All item↔item incompatibility pairs. Best-effort: [] if the table isn't present yet (0018). */
-export async function getRestrictions(sb: SupabaseClient = admin()): Promise<VariationRestriction[]> {
-  const { data, error } = await sb.from("variation_item_restrictions").select("item_lo, item_hi");
-  if (error) return [];
-  return ((data ?? []) as { item_lo: string; item_hi: string }[]).map((r) => ({ itemLo: r.item_lo, itemHi: r.item_hi }));
+/**
+ * model_id → its exclusion groups (each an array of item ids). Best-effort: {} if the tables
+ * aren't present yet (0038 not run). Singleton/empty groups are dropped — they constrain nothing.
+ */
+export async function getExclusionGroupsMap(sb: SupabaseClient = admin()): Promise<Record<string, string[][]>> {
+  const { data: groups, error } = await sb.from("variation_exclusion_groups").select("id, model_id");
+  if (error) return {};
+  const { data: items, error: e2 } = await sb.from("variation_exclusion_group_items").select("group_id, item_id");
+  if (e2) return {};
+  const itemsByGroup = new Map<string, string[]>();
+  for (const r of (items ?? []) as { group_id: string; item_id: string }[]) {
+    (itemsByGroup.get(r.group_id) ?? itemsByGroup.set(r.group_id, []).get(r.group_id)!).push(r.item_id);
+  }
+  const map: Record<string, string[][]> = {};
+  for (const g of (groups ?? []) as { id: string; model_id: string }[]) {
+    const ids = itemsByGroup.get(g.id) ?? [];
+    if (ids.length >= 2) (map[g.model_id] ??= []).push(ids);
+  }
+  return map;
 }
 
 /**
- * Replace all restrictions between two variations with `blockedPairs` (each an [itemA, itemB]).
- * Delete-all-then-insert, scoped to the A×B item space so other variation pairs are untouched.
- * Pairs are canonicalised to (item_lo < item_hi); self-pairs and unknown items are dropped.
+ * Replace ALL exclusion groups for a model (delete-all-then-insert). Each input group is a list of
+ * item ids; we dedup within a group, keep only items actually assigned to the model, and drop any
+ * group left with fewer than 2 items (it would constrain nothing). Groups are inserted one at a
+ * time so each row's generated id maps to the right item set (insert order isn't guaranteed on a
+ * bulk `select`).
  */
-export async function setVariationPairRestrictions(
-  variationA: string,
-  variationB: string,
-  blockedPairs: [string, string][],
+export async function setModelExclusionGroups(
+  modelId: string,
+  groups: string[][],
   sb: SupabaseClient = admin()
 ): Promise<void> {
-  if (!variationA || !variationB || variationA === variationB) throw new Error("Pick two different variations");
-  const { data: itemRows, error: itErr } = await sb
-    .from("variation_items")
-    .select("id, variation_id")
-    .in("variation_id", [variationA, variationB]);
-  if (itErr) throw itErr;
-  const itemsA = new Set<string>();
-  const itemsB = new Set<string>();
-  for (const r of (itemRows ?? []) as { id: string; variation_id: string }[]) {
-    if (r.variation_id === variationA) itemsA.add(r.id);
-    else if (r.variation_id === variationB) itemsB.add(r.id);
+  if (!modelId) throw new Error("modelId is required");
+  const { data: assigned, error: aErr } = await sb
+    .from("variation_product_items")
+    .select("item_id")
+    .eq("model_id", modelId);
+  if (aErr) throw aErr;
+  const allowed = new Set((assigned ?? []).map((r) => (r as { item_id: string }).item_id));
+
+  const clean = groups
+    .map((g) => [...new Set(g.filter((id) => allowed.has(id)))])
+    .filter((g) => g.length >= 2);
+
+  // Wipe existing groups (group_items cascade) then insert the new set.
+  const del = await sb.from("variation_exclusion_groups").delete().eq("model_id", modelId);
+  if (del.error) throw del.error;
+
+  for (let i = 0; i < clean.length; i++) {
+    const { data: grp, error: gErr } = await sb
+      .from("variation_exclusion_groups")
+      .insert({ model_id: modelId, sort: i })
+      .select("id")
+      .single();
+    if (gErr) throw gErr;
+    const gid = (grp as { id: string }).id;
+    const { error } = await sb
+      .from("variation_exclusion_group_items")
+      .insert(clean[i].map((item_id) => ({ group_id: gid, item_id })));
+    if (error) throw error;
   }
-  // Clear existing rows that pair an A-item with a B-item (in either column orientation).
-  const aIds = [...itemsA];
-  const bIds = [...itemsB];
-  if (aIds.length && bIds.length) {
-    const del1 = await sb.from("variation_item_restrictions").delete().in("item_lo", aIds).in("item_hi", bIds);
-    if (del1.error) throw del1.error;
-    const del2 = await sb.from("variation_item_restrictions").delete().in("item_lo", bIds).in("item_hi", aIds);
-    if (del2.error) throw del2.error;
-  }
-  // Insert the new set — only pairs that genuinely span the A and B item spaces.
-  const seen = new Set<string>();
-  const rows: { item_lo: string; item_hi: string }[] = [];
-  for (const [x, y] of blockedPairs) {
-    const spansAB = (itemsA.has(x) && itemsB.has(y)) || (itemsB.has(x) && itemsA.has(y));
-    if (!spansAB || x === y) continue;
-    const [lo, hi] = pairKey(x, y);
-    const k = `${lo}|${hi}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    rows.push({ item_lo: lo, item_hi: hi });
-  }
-  if (rows.length === 0) return;
-  const { error } = await sb.from("variation_item_restrictions").insert(rows);
-  if (error) throw error;
 }
 
 /** The variation types (with only the items available for `modelId`) — for the quote-time selector. */
@@ -248,9 +258,10 @@ export async function setProductVariationItems(
 }
 
 /**
- * Resolve the chosen item ids for a model into snapshot selections. Validates each item is
- * available for the model, and enforces the pair rule: within a `pair_group`, either every type
- * in the group is chosen or none is. Throws on a violation.
+ * Resolve the chosen item ids for a model into snapshot selections. Multi-select: any number of
+ * items per type may be chosen. Validates each item is available for the model, and enforces the
+ * model's exclusion groups (at most one selected item per group). Throws on a violation. The
+ * client greys conflicting options out, but this is the authoritative gate.
  */
 export async function resolveVariationSelections(
   modelId: string,
@@ -269,14 +280,10 @@ export async function resolveVariationSelections(
   const itemIndex = new Map<string, { type: VariationType; item: VariationItem }>();
   for (const t of available) for (const i of t.items) itemIndex.set(i.id, { type: t, item: i });
 
-  // Add-on parts are single-select per type (one CROWN, one DRIVE …) with no pair-group coupling.
   const selections: VariationSelection[] = [];
-  const chosenTypeIds = new Set<string>();
   for (const id of chosen) {
     const hit = itemIndex.get(id);
     if (!hit) throw new Error("A selected option is no longer available for this product");
-    if (chosenTypeIds.has(hit.type.id)) throw new Error(`Pick only one ${hit.type.name}`);
-    chosenTypeIds.add(hit.type.id);
     selections.push({
       variationId: hit.type.id,
       variationName: hit.type.name,
@@ -287,19 +294,15 @@ export async function resolveVariationSelections(
     });
   }
 
-  // Compatibility: reject any chosen pair that admins marked incompatible. The client greys
-  // these out, but it's never trusted — this is the authoritative gate.
+  // Exclusion groups: at most one selected item per group for this model.
   if (chosen.length > 1) {
-    const restrictions = await getRestrictions(sb);
-    const blocked = new Set(restrictions.map((r) => `${r.itemLo}|${r.itemHi}`));
-    for (let i = 0; i < chosen.length; i++) {
-      for (let j = i + 1; j < chosen.length; j++) {
-        const [lo, hi] = pairKey(chosen[i], chosen[j]);
-        if (blocked.has(`${lo}|${hi}`)) {
-          const a = itemIndex.get(chosen[i])?.item.name ?? "option";
-          const b = itemIndex.get(chosen[j])?.item.name ?? "option";
-          throw new Error(`${a} and ${b} can't be combined`);
-        }
+    const chosenSet = new Set(chosen);
+    const groups = (await getExclusionGroupsMap(sb))[modelId] ?? [];
+    for (const g of groups) {
+      const hits = g.filter((id) => chosenSet.has(id));
+      if (hits.length > 1) {
+        const names = hits.map((id) => itemIndex.get(id)?.item.name ?? "option");
+        throw new Error(`${names.join(" and ")} can't be selected together`);
       }
     }
   }

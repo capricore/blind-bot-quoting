@@ -16,7 +16,7 @@ import {
   getModelTagMap,
   getProductDefaultsMap,
   getProductVariationMap,
-  getRestrictions,
+  getExclusionGroupsMap,
   getVariationItemModelMap,
   getVariations,
   loadCatalog,
@@ -38,7 +38,7 @@ export default async function AccessoriesPage({
   // ordering on someone's behalf, else the logged-in user). Order history / frequent parts must
   // key off this, not the real uid — otherwise an admin acting-as sees an empty card.
   const [userId, effectiveOwner] = await Promise.all([getCurrentUserId(), getEffectiveOwnerId()]);
-  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap, restrictions, itemModelMap, frequentRaw] = await Promise.all([
+  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap, exclusionGroups, itemModelMap, frequentRaw] = await Promise.all([
     loadCatalog(),
     getAttributes(),
     getModelTagMap(),
@@ -48,7 +48,7 @@ export default async function AccessoriesPage({
     getProductVariationMap(), // model_id → available variation item ids
     getModelFilesMap(), // model_id → spec/cert attachments
     getProductDefaultsMap(), // model_id → default variation item ids
-    getRestrictions(), // item↔item incompatibility pairs (grey-out in the options modal)
+    getExclusionGroupsMap(), // model_id → exclusion groups (grey-out in the options picker)
     getVariationItemModelMap(), // variation item_id → its source model id (for stock)
     effectiveOwner ? getFrequentPartIds(effectiveOwner, 12) : Promise.resolve([]), // over-fetch; stale ids filtered below
   ]);
@@ -247,7 +247,7 @@ export default async function AccessoriesPage({
         </div>
       )}
 
-      <FrequentParts parts={frequentParts} quoteId={quoteId} variations={variations} restrictions={restrictions} />
+      <FrequentParts parts={frequentParts} quoteId={quoteId} variations={variations} exclusionGroups={exclusionGroups} />
 
       <AccessoryToolbar
         brands={brandsData}
@@ -265,7 +265,7 @@ export default async function AccessoriesPage({
         <AccessoryBrowser
           models={browserModels}
           variations={variations}
-          restrictions={restrictions}
+          exclusionGroups={exclusionGroups}
           variationStock={variationStock}
           quotes={draftQuotes}
           showCategory={filtering}
