@@ -17,6 +17,7 @@ import {
   getModelFilesMap,
   getModelTagMap,
   getProductDefaultsMap,
+  getRetailerDefaultsMap,
   getProductVariationMap,
   getExclusionGroupsMap,
   getVariationItemModelMap,
@@ -40,7 +41,7 @@ export default async function AccessoriesPage({
   // ordering on someone's behalf, else the logged-in user). Order history / frequent parts must
   // key off this, not the real uid — otherwise an admin acting-as sees an empty card.
   const [userId, effectiveOwner] = await Promise.all([getCurrentUserId(), getEffectiveOwnerId()]);
-  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap, exclusionGroups, itemModelMap, frequentRaw] = await Promise.all([
+  const [catalog, attributes, tagMap, effectivePrices, inventory, variations, variationMap, filesMap, defaultsMap, retailerDefaults, exclusionGroups, itemModelMap, frequentRaw] = await Promise.all([
     loadCatalog(),
     getAttributes(),
     getModelTagMap(),
@@ -49,11 +50,15 @@ export default async function AccessoriesPage({
     getVariations(),
     getProductVariationMap(), // model_id → available variation item ids
     getModelFilesMap(), // model_id → spec/cert attachments
-    getProductDefaultsMap(), // model_id → default variation item ids
+    getProductDefaultsMap(), // model_id → store-wide default variation item ids
+    effectiveOwner ? getRetailerDefaultsMap(effectiveOwner) : Promise.resolve<Record<string, string[]>>({}), // this customer's pre-set "kit" (overrides global per model)
     getExclusionGroupsMap(), // model_id → exclusion groups (grey-out in the options picker)
     getVariationItemModelMap(), // variation item_id → its source model id (for stock)
     effectiveOwner ? getFrequentPartIds(effectiveOwner, 12) : Promise.resolve([]), // over-fetch; stale ids filtered below
   ]);
+
+  // Effective default for a model = this customer's admin-configured kit if set, else the store default.
+  const effDefault = (modelId: string): string[] => retailerDefaults[modelId] ?? defaultsMap[modelId] ?? [];
 
   // Each add-on part inherits its source model's stock (absent = untracked / unlimited).
   const variationStock: Record<string, number | null> = {};
@@ -95,7 +100,7 @@ export default async function AccessoriesPage({
       orderCount,
       stock: modelId in inventory ? inventory[modelId] : null,
       availableItemIds: variationMap[modelId] ?? [],
-      defaultItemIds: defaultsMap[modelId] ?? [],
+      defaultItemIds: effDefault(modelId),
       moq: model.moq ?? 0,
     }];
   }).slice(0, 3);
@@ -168,7 +173,7 @@ export default async function AccessoriesPage({
     tags: (tagMap[model.id] ?? []).map((t) => valueLabel[t] ?? t),
     files: (filesMap[model.id] ?? []).map((f) => ({ id: f.id, url: f.url, kind: f.kind, name: f.name })),
     availableItemIds: variationMap[model.id] ?? [],
-    defaultItemIds: defaultsMap[model.id] ?? [],
+    defaultItemIds: effDefault(model.id),
   }));
 
   // ---- Toolbar data: breadcrumb categories + active-filter chips ----

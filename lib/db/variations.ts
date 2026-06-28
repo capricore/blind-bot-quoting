@@ -94,6 +94,78 @@ export async function getProductDefaultsMap(sb: SupabaseClient = admin()): Promi
 }
 
 /**
+ * One customer's "kit": model_id → the default item ids an admin pre-configured for THIS retailer
+ * (migration 0039). Overrides the store-wide `is_default` on a per-model basis. Best-effort: {} if
+ * the table isn't present yet or `retailerId` is empty.
+ */
+export async function getRetailerDefaultsMap(
+  retailerId: string,
+  sb: SupabaseClient = admin()
+): Promise<Record<string, string[]>> {
+  if (!retailerId) return {};
+  const { data, error } = await sb
+    .from("variation_retailer_defaults")
+    .select("model_id, item_id")
+    .eq("retailer_id", retailerId);
+  if (error) return {};
+  const map: Record<string, string[]> = {};
+  for (const row of (data ?? []) as { model_id: string; item_id: string }[]) {
+    (map[row.model_id] ??= []).push(row.item_id);
+  }
+  return map;
+}
+
+/**
+ * Replace ONE customer's default items for ONE model (delete-all-then-insert, scoped to
+ * retailer+model). Items must be assigned to the model; we also enforce the model's exclusion
+ * groups (keep at most one item per group, dropping later conflicts) so a saved kit is always a
+ * valid selection — mirroring the customer-side gate. An empty `itemIds` clears the kit for this
+ * model, falling the customer back to the store-wide default.
+ */
+export async function setRetailerProductDefaults(
+  retailerId: string,
+  modelId: string,
+  itemIds: string[],
+  sb: SupabaseClient = admin()
+): Promise<void> {
+  if (!retailerId) throw new Error("retailerId is required");
+  if (!modelId) throw new Error("modelId is required");
+
+  const { data: assigned, error: aErr } = await sb
+    .from("variation_product_items")
+    .select("item_id")
+    .eq("model_id", modelId);
+  if (aErr) throw aErr;
+  const allowed = new Set((assigned ?? []).map((r) => (r as { item_id: string }).item_id));
+
+  // Enforce exclusion groups: within a group only the first picked item survives.
+  const groups = (await getExclusionGroupsMap(sb))[modelId] ?? [];
+  const blocked = new Map<string, Set<string>>();
+  for (const g of groups)
+    for (const a of g) for (const b of g) if (a !== b) (blocked.get(a) ?? blocked.set(a, new Set()).get(a)!).add(b);
+  const chosen: string[] = [];
+  const taken = new Set<string>();
+  for (const id of new Set(itemIds.filter((i) => allowed.has(i)))) {
+    const c = blocked.get(id);
+    if (c && [...taken].some((t) => c.has(t))) continue;
+    chosen.push(id);
+    taken.add(id);
+  }
+
+  const del = await sb
+    .from("variation_retailer_defaults")
+    .delete()
+    .eq("retailer_id", retailerId)
+    .eq("model_id", modelId);
+  if (del.error) throw del.error;
+  if (chosen.length === 0) return;
+  const { error } = await sb
+    .from("variation_retailer_defaults")
+    .insert(chosen.map((item_id) => ({ retailer_id: retailerId, model_id: modelId, item_id })));
+  if (error) throw error;
+}
+
+/**
  * model_id → its exclusion groups (each an array of item ids). Best-effort: {} if the tables
  * aren't present yet (0038 not run). Singleton/empty groups are dropped — they constrain nothing.
  */

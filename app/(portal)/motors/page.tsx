@@ -9,6 +9,7 @@ import { RetailerDiscountEditor } from "@/components/RetailerDiscountEditor";
 import { RetailerPricingList } from "@/components/RetailerPricingList";
 import { WaiveShippingEditor } from "@/components/WaiveShippingEditor";
 import { VariationsAdmin, type VariationProduct } from "@/components/VariationsAdmin";
+import { RetailerDefaultsAdmin, type KitProduct } from "@/components/RetailerDefaultsAdmin";
 import { CatalogAdmin } from "@/components/CatalogAdmin";
 import { requireAdminPage } from "@/lib/auth/user";
 import {
@@ -20,6 +21,7 @@ import {
   getProductDefaultsMap,
   getProductVariationMap,
   getExclusionGroupsMap,
+  getRetailerDefaultsMap,
   getRetailerDiscount,
   getRetailerOverrideMap,
   getShippingWaivers,
@@ -29,7 +31,7 @@ import {
   loadCatalogAdmin,
 } from "@/lib/db";
 
-type Tab = "catalog" | "inventory" | "pricing" | "shipping" | "tags" | "variations";
+type Tab = "catalog" | "inventory" | "pricing" | "shipping" | "tags" | "variations" | "defaults";
 const TABS: { id: Tab; label: string }[] = [
   { id: "catalog", label: "Catalog" },
   { id: "inventory", label: "Inventory" },
@@ -37,6 +39,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "shipping", label: "Shipping" },
   { id: "tags", label: "Tags" },
   { id: "variations", label: "Variations" },
+  { id: "defaults", label: "Customer kits" },
 ];
 
 /** Orderable motor models with category, the surface inventory/pricing/shipping share. */
@@ -103,6 +106,7 @@ export default async function MotorsPage({
       {tab === "shipping" && <ShippingTab />}
       {tab === "tags" && <TagsTab />}
       {tab === "variations" && <VariationsTab />}
+      {tab === "defaults" && <DefaultsTab retailerParam={retailer} />}
     </div>
   );
 }
@@ -174,6 +178,79 @@ async function VariationsTab() {
     getExclusionGroupsMap(),
   ]);
   return <VariationsAdmin variations={variations} products={products} assignment={assignment} defaults={defaults} exclusionGroups={exclusionGroups} />;
+}
+
+/**
+ * "Customer kits" — per-customer default variation items. Pick a retailer, then pre-select which
+ * sub-products auto-fill for them when they open a model on the accessory page. Mirrors the
+ * Pricing tab's retailer-picker flow (shares the `?retailer=` param).
+ */
+async function DefaultsTab({ retailerParam }: { retailerParam?: string }) {
+  const retailers = await listRetailers();
+
+  if (!retailerParam) {
+    return (
+      <div className="max-w-4xl space-y-3">
+        <p className="text-[13px] text-muted">
+          Choose a customer to set up their default parts. When they shop the accessory catalog, the parts you pick
+          here auto-select for them.
+        </p>
+        <div className="space-y-2">
+          {retailers.map((r) => (
+            <Link key={r.id} href={`/motors?tab=defaults&retailer=${r.id}`} className="block">
+              <Card className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#faf9f5]">
+                <div>
+                  <div className="text-[14px] font-semibold text-ink">{r.company ?? r.email}</div>
+                  {r.company && <div className="text-[12px] text-muted">{r.email}</div>}
+                </div>
+                <span className="text-brass">→</span>
+              </Card>
+            </Link>
+          ))}
+          {retailers.length === 0 && <div className="text-[12.5px] text-muted">No customers yet.</div>}
+        </div>
+      </div>
+    );
+  }
+
+  const r = retailers.find((x) => x.id === retailerParam);
+  if (!r) {
+    return (
+      <div className="max-w-4xl">
+        <Link href="/motors?tab=defaults" className="text-[13px] text-brass hover:underline">← Back to customers</Link>
+        <p className="mt-3 text-[13px] text-muted">That customer no longer exists.</p>
+      </div>
+    );
+  }
+
+  const [variations, assignment, exclusionGroups, globalDefaults, retailerDefaults, all] = await Promise.all([
+    getVariations(),
+    getProductVariationMap(),
+    getExclusionGroupsMap(),
+    getProductDefaultsMap(),
+    getRetailerDefaultsMap(r.id),
+    allProducts(),
+  ]);
+  // Only products that actually have variation items assigned can be kitted.
+  const products: KitProduct[] = all
+    .filter((p) => (assignment[p.id]?.length ?? 0) > 0)
+    .map((p) => ({ id: p.id, name: p.name, sku: p.sku, categoryName: p.categoryName, assigned: assignment[p.id] ?? [] }));
+
+  return (
+    <div className="max-w-4xl space-y-3">
+      <Link href="/motors?tab=defaults" className="text-[13px] text-brass hover:underline">← Back to customers</Link>
+      <h2 className="text-lg font-semibold tracking-tight text-ink">Default parts for {r.company ?? r.email}</h2>
+      <RetailerDefaultsAdmin
+        retailerId={r.id}
+        retailerLabel={r.company ?? r.email}
+        products={products}
+        variations={variations}
+        exclusionGroups={exclusionGroups}
+        globalDefaults={globalDefaults}
+        retailerDefaults={retailerDefaults}
+      />
+    </div>
+  );
 }
 
 async function PricingTab({ retailerParam }: { retailerParam?: string }) {

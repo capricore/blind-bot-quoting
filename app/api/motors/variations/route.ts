@@ -7,13 +7,14 @@ import {
   deleteVariationType,
   setModelExclusionGroups,
   setProductVariationItems,
+  setRetailerProductDefaults,
   updateVariationItem,
   updateVariationType,
 } from "@/lib/db";
 
-type Entity = "type" | "item" | "assignment" | "exclusion-group";
+type Entity = "type" | "item" | "assignment" | "exclusion-group" | "retailer-default";
 const isEntity = (e: unknown): e is Entity =>
-  e === "type" || e === "item" || e === "assignment" || e === "exclusion-group";
+  e === "type" || e === "item" || e === "assignment" || e === "exclusion-group" || e === "retailer-default";
 
 /** Coerce a `groups` payload into validated string[][] (each group a list of item ids). */
 const asGroups = (v: unknown): string[][] =>
@@ -35,6 +36,12 @@ export async function POST(req: Request) {
     else if (b.entity === "item") await createVariationItem(String(b.variationId ?? ""), String(b.name ?? ""), asPrice(b.price), b.image ?? null);
     else if (b.entity === "exclusion-group")
       await setModelExclusionGroups(String(b.modelId ?? ""), asGroups(b.groups));
+    else if (b.entity === "retailer-default")
+      await setRetailerProductDefaults(
+        String(b.retailerId ?? ""),
+        String(b.modelId ?? ""),
+        Array.isArray(b.itemIds) ? b.itemIds.map(String) : []
+      );
     else
       await setProductVariationItems(
         String(b.modelId ?? ""),
