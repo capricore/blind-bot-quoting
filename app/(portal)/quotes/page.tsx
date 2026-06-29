@@ -7,7 +7,6 @@ import { userClient } from "@/lib/auth/user";
 import { getActingContext } from "@/lib/auth/acting-as";
 import { admin } from "@/lib/supabase/admin";
 import { getQuotes } from "@/lib/db";
-import { canInvoiceQuote } from "@/lib/invoice";
 import { fmtDate, usd } from "@/lib/format";
 import { pageSlice, parseListParams, PAGE_SIZE } from "@/lib/list";
 
@@ -130,7 +129,7 @@ export default async function QuotesPage({
                   <td className="px-5 py-3.5 text-right text-xs text-muted">{fmtDate(q.updatedAt)}</td>
                   <td className="px-5 py-3.5 text-right">
                     <div className="flex items-center justify-end gap-3">
-                      {canInvoiceQuote(q, ownerId) ? (
+                      {q.ownerId ? (
                         <Link
                           href={`/invoices/${q.id}`}
                           prefetch={false}
@@ -143,7 +142,7 @@ export default async function QuotesPage({
                       ) : (
                         <span
                           className="cursor-not-allowed text-xs font-semibold text-muted/40"
-                          title="Only your own quotes with complete customer & ship-to details can be invoiced"
+                          title="Demo sample quotes can't be invoiced"
                         >
                           Invoice
                         </span>

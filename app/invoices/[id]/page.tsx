@@ -22,7 +22,6 @@ import { signInvoiceToken, verifyInvoiceToken } from "@/lib/invoice-token";
 import { fmtDate, usd } from "@/lib/format";
 import {
   buildInvoiceLines,
-  canInvoiceQuote,
   INVOICE_CONDITIONS,
   INVOICE_NOTES,
   INVOICE_TERMS_LABEL,
@@ -77,10 +76,11 @@ export default async function InvoicePage({
   const quote = await getQuote(quoteId, sb);
   if (!quote) notFound();
 
-  // Eligibility (both modes): a real owned quote (no public demo samples) with complete Bill-To
-  // details. Access was already gated above, so "the viewer's own quote" reduces to "an owned
-  // quote" — pass the owner itself.
-  if (!canInvoiceQuote(quote, quote.ownerId ?? "")) notFound();
+  // Eligibility: a real owned quote (public demo samples have no owner, and the discount/address
+  // lookups below need one). The old "complete Bill-To details" requirement was removed — any
+  // owned quote can be invoiced now, even with missing customer/ship-to fields. Access was already
+  // gated above (canAccessOwned).
+  if (!quote.ownerId) notFound();
   const ownerId = quote.ownerId as string;
 
   const invoiceRef = await getOrAssignInvoiceRef(quoteId);
