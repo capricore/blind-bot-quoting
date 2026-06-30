@@ -23,7 +23,7 @@ function Chevron() {
 /**
  * Landing for a verified blind-bot "Get a quote" handoff. Runs as a SAME-ORIGIN GET so it
  * can read quote's session cookie (the cross-site POST to /api/handoff cannot). Decides:
- *   - no session                → /login (carry design)
+ *   - no session                → /api/handoff/callback (auto-provision + sign in, login-free)
  *   - same account, first time  → one-time consent ("entering a separate service"), remembered
  *   - same account, consented   → straight through (silent)
  *   - different account         → account chooser (continue as / switch)
@@ -42,7 +42,10 @@ export default async function HandoffChoosePage({
   const sessionEmail = user?.email ?? null;
 
   if (!token || !blindbotEmail) redirect(next);
-  if (!sessionEmail) redirect(`/login?next=${encodeURIComponent(next)}`);
+  // No quote session yet → auto-provision + sign in via the callback (true login-free handoff),
+  // instead of bouncing to /login. The callback runs completeBlindbotHandoff() and writes cookies.
+  if (!sessionEmail)
+    redirect(`/api/handoff/callback?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`);
 
   const sameAccount = sessionEmail.toLowerCase() === blindbotEmail!.toLowerCase();
 

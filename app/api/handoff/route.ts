@@ -24,13 +24,18 @@ export async function POST(req: Request) {
   const line = String(form.get("line") ?? "");
   const img = String(form.get("img") ?? "");
   const cfg = String(form.get("cfg") ?? "");
+  // Optional explicit destination (e.g. parts-store banner → home '/' or
+  // accessories '/catalog/accessories'). Must be a same-origin path.
+  const nextRaw = String(form.get("next") ?? "");
+  const next = nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "";
 
   const product = QUOTE_DEFAULT_PRODUCT[line] ?? "rs-roller-shade";
   const params = new URLSearchParams();
   if (img) params.set("img", img);
   if (cfg) params.set("cfg", cfg);
   if (line) params.set("line", line);
-  const dest = `/configure/${product}?${params.toString()}`;
+  // `next` wins when provided; otherwise default to the design's product configurator.
+  const dest = next || `/configure/${product}?${params.toString()}`;
   const origin = publicOrigin(req);
   const to = (path: string) => NextResponse.redirect(`${origin}${path}`, { status: 303 });
 
