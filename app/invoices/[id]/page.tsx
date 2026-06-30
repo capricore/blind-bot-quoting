@@ -111,6 +111,8 @@ export default async function InvoicePage({
   const invoiceUrl = `${host ? `${proto}://${host}` : ""}/invoices/${quote.id}${tokenQuery}`;
 
   const issuedAt = issueDateFromRef(invoiceRef) ?? order?.createdAt ?? quote.createdAt;
+  // Top line = the owning retailer's name (white-label face).
+  const brandName = quote.retailer?.trim() || BRAND.name;
   const billToName = quote.customerName ?? quote.retailer;
   const billToLines = [
     quote.shipAddress1,
@@ -161,10 +163,13 @@ export default async function InvoicePage({
         {/* Header */}
         <div className="flex items-start justify-between gap-6">
           <div>
+            {/* Our brand logo. */}
             <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-brass to-[#8a6a39] text-lg font-bold text-white">
               {BRAND.monogram}
             </div>
-            <div className="mt-3 text-base font-bold text-ink">{seller.name}</div>
+            <div className="mt-3 text-base font-bold text-ink">{brandName}</div>
+            {/* Seller disclosure — our brand is the selling/billing entity. */}
+            <div className="mt-2 text-[12px] text-muted">Sold By {BRAND.name} portal</div>
             {seller.addressLines.map((l, i) => (
               <div key={i} className="text-[12px] text-muted">
                 {l}

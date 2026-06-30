@@ -4,9 +4,8 @@ import { getActingContext } from "@/lib/auth/acting-as";
 import { admin } from "@/lib/supabase/admin";
 import {
   getAdminPendingCount,
-  getDraftQuote,
+  getDraftCount,
   getProfile,
-  getQuote,
   getUnreadCount,
   listRetailers,
 } from "@/lib/db";
@@ -21,8 +20,7 @@ export default async function PortalLayout({ children }: Readonly<{ children: Re
   // bypasses RLS for the cross-owner reads. Otherwise the retailer's own RLS-scoped client.
   const effectiveOwner = ctx.actingAsId ?? realUid;
   const sb = realUid ? (ctx.actingAsId ? admin() : await userClient()) : undefined;
-  const draft = effectiveOwner ? await getDraftQuote(effectiveOwner, sb) : undefined;
-  const draftCount = draft ? (await getQuote(draft.id, sb))?.items.length ?? 0 : 0;
+  const draftCount = effectiveOwner ? await getDraftCount(effectiveOwner, sb) : 0;
 
   // Account chrome always shows the REAL signed-in user — acting-on-behalf is not impersonation.
   const profile = realUid ? await getProfile(realUid) : null;

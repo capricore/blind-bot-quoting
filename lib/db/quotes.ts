@@ -74,6 +74,17 @@ export async function getDraftQuote(ownerId: string, sb: SupabaseClient = admin(
   return (data ?? undefined) as QuoteRow | undefined;
 }
 
+export async function getDraftCount(ownerId: string, sb: SupabaseClient = admin()): Promise<number> {
+  await ensureSeeded();
+  const { count, error } = await sb
+    .from("quotes")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "draft")
+    .eq("owner_id", ownerId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function getOrCreateDraftQuote(
   ownerId: string,
   projectName?: string,
