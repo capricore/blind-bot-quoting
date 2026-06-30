@@ -7,7 +7,7 @@
 import { BRAND } from "./brand";
 import { getLine, getProduct, getSellerInfo } from "./db";
 import { describeConfig } from "./describe";
-import { isAccessoryConfig, type QuoteItemRow, type QuoteRow } from "./types";
+import { isAccessoryConfig, isAdjustmentConfig, type QuoteItemRow, type QuoteRow } from "./types";
 
 /** Bill-To fields an invoice requires (the reference invoice's customer address block). Returns the
  *  human labels of any that are blank — empty array means the quote has complete invoicing details. */
@@ -87,6 +87,9 @@ export function buildInvoiceLines(items: QuoteItemRow[]): InvoiceLine[] {
     const base = { n: i + 1, qty, rate, amount: round2(rate * qty) };
 
     const cfg = item.config;
+    if (isAdjustmentConfig(cfg)) {
+      return { ...base, name: cfg.label, description: cfg.note ?? "", sku: null };
+    }
     if (isAccessoryConfig(cfg)) {
       const variations = (cfg.variations ?? []).map((v) => v.itemLabel).join(", ");
       const description = [cfg.brand, cfg.category, variations].filter(Boolean).join(" · ");

@@ -12,7 +12,7 @@ import { QuoteChatLauncher } from "@/components/QuoteChatLauncher";
 import { quoteItemsToRefs } from "@/lib/message-items";
 import type { MotorRate } from "@/lib/shipping";
 import { describeConfig } from "@/lib/describe";
-import { isAccessoryConfig } from "@/lib/types";
+import { isAccessoryConfig, isAdjustmentConfig } from "@/lib/types";
 import { AccessoryVariations } from "@/components/AccessoryVariations";
 import { OrderShippingRow } from "@/components/OrderShippingRow";
 import { BRAND } from "@/lib/brand";
@@ -145,6 +145,22 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const allShipDetail = order.quote.items.flatMap(lineShipDetail);
 
   const renderItem = (item: LineItem) => {
+    if (isAdjustmentConfig(item.config)) {
+      const cfg = item.config;
+      const amount = item.computation.unitPrice;
+      const isDiscount = amount < 0;
+      return (
+        <li key={item.id} className="flex items-start justify-between gap-3 px-5 py-3.5">
+          <div className="min-w-0">
+            <div className="text-[13.5px] font-semibold text-ink">{cfg.label}</div>
+            <div className="mt-0.5 text-[11px] text-muted">{cfg.note ?? (isDiscount ? "Discount" : "Charge")}</div>
+          </div>
+          <div className={`text-sm font-semibold tabular-nums ${isDiscount ? "text-emerald-600" : "text-ink"}`}>
+            {isDiscount ? `−${usd(Math.abs(amount))}` : usd(amount)}
+          </div>
+        </li>
+      );
+    }
     if (isAccessoryConfig(item.config)) {
       const cfg = item.config;
       const acc = catalog.model(item.productId);

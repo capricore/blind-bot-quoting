@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { BRAND } from "./brand";
 import { OPACITY_LABELS } from "./catalog-data";
 import { getLine, getOrder, getProduct } from "./db";
-import { isAccessoryConfig } from "./types";
+import { isAccessoryConfig, isAdjustmentConfig } from "./types";
 
 const HEADER_FILL: ExcelJS.Fill = {
   type: "pattern",
@@ -99,7 +99,12 @@ export async function buildOrderWorkbook(orderId: number): Promise<{ buffer: Buf
     const row = ws.getRow(headerRowIdx + 1 + idx);
 
     let values: (string | number)[];
-    if (isAccessoryConfig(item.config)) {
+    if (isAdjustmentConfig(item.config)) {
+      // Ad-hoc surcharge/discount — money-only, not a manufactured line. Show it as a financial row
+      // (no qty/specs) so the bilingual sheet still balances to the order total.
+      const cfg = item.config;
+      values = [idx + 1, "调整 Adjustment", "", cfg.label, "—", "—", "", "", cfg.note ?? "", "", "", item.computation.unitPrice, ""];
+    } else if (isAccessoryConfig(item.config)) {
       // Accessory (A-OK motor): no pattern/color/dimensions/options.
       const cfg = item.config;
       values = [idx + 1, cfg.category, cfg.sku, cfg.name, "—", "—", "", "", `Brand: ${cfg.brand}`, factsText, item.qty, item.computation.unitPrice, ""];
@@ -148,7 +153,7 @@ export async function buildOrderWorkbook(orderId: number): Promise<{ buffer: Buf
   const totalRow = ws.getRow(totalRowIdx);
   totalRow.getCell(10).value = "合计 Total";
   totalRow.getCell(10).font = { bold: true };
-  totalRow.getCell(11).value = order.quote.items.reduce((s, i) => s + i.qty, 0);
+  totalRow.getCell(11).value = order.quote.items.reduce((s, i) => s + (isAdjustmentConfig(i.config) ? 0 : i.qty), 0);
   totalRow.getCell(11).font = { bold: true };
   totalRow.getCell(12).value = order.quote.total;
   totalRow.getCell(12).numFmt = '"$"#,##0.00';

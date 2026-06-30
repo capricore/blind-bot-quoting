@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useShippingRecalc } from "./ShippingRecalcContext";
 import { Button, cx, LinkButton, Spinner } from "./ui";
+import { usd } from "@/lib/format";
 
 export function DeleteDraftButton({ quoteId }: { quoteId: number }) {
   const router = useRouter();
@@ -349,5 +350,197 @@ export function RemoveItemButton({ itemId, className }: { itemId: number; classN
     >
       {busy ? "…" : "Remove"}
     </button>
+  );
+}
+
+/**
+ * Admin-only per-quote price override link, shown top-right of a line (THE-772). Two targets:
+ *  - "line" (full products): sets a flat unit price for the whole line; `standard` (non-null) is the
+ *    price it replaced (shown struck) and marks it overridden.
+ *  - "motor" (accessories): sets the motor's own BASE unit price; sub-parts are priced per row, the
+ *    line total stays auto-computed. `overridden` marks it active (no struck "was" price here).
+ * Posts `unitPriceOverride` (line) or `componentPrices.motor` (motor) — number to set, null to clear.
+ */
+export function LinePriceEditor({
+  itemId,
+  unitPrice,
+  standard = null,
+  overridden: overriddenProp = false,
+  target = "line",
+}: {
+  itemId: number;
+  unitPrice: number;
+  standard?: number | null;
+  overridden?: boolean;
+  target?: "line" | "motor";
+}) {
+  const router = useRouter();
+  const { setPending } = useShippingRecalc();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(String(unitPrice));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const overridden = target === "motor" ? overriddenProp : standard !== null;
+
+  const save = async (override: number | null) => {
+    setBusy(true);
+    setPending(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/quote-items", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          target === "motor" ? { itemId, componentPrices: { motor: override } } : { itemId, unitPriceOverride: override }
+        ),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error ?? "Could not update price");
+      }
+      setOpen(false);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+      setPending(false);
+    }
+  };
+
+  if (open) {
+    return (
+      <div className="mt-1.5 flex flex-col items-end gap-1">
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted">$</span>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-right text-sm tabular-nums text-ink outline-none focus:border-ink"
+          />
+          <button
+            onClick={() => save(value.trim() === "" ? null : Number(value))}
+            disabled={busy}
+            className="rounded-md bg-ink px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "…" : "Save"}
+          </button>
+          <button onClick={() => { setOpen(false); setError(null); }} disabled={busy} className="px-1 text-xs text-muted hover:underline">
+            Cancel
+          </button>
+        </div>
+        {error && <span className="text-[11px] text-red-500">{error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 flex items-center justify-end gap-2 text-[11px]">
+      {standard !== null && (
+        <span className="text-muted">
+          standard <span className="line-through">{usd(standard)}</span>
+        </span>
+      )}
+      <button
+        onClick={() => { setValue(String(unitPrice)); setOpen(true); }}
+        className="font-medium text-brass hover:underline"
+      >
+        {overridden ? "Edit price" : "Custom price"}
+      </button>
+      {overridden && (
+        <button onClick={() => save(null)} disabled={busy} className="font-medium text-muted hover:text-red-500">
+          Reset
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Admin-only "+ Add charge / discount" — adds an ad-hoc money line to a quote. Positive amount = a
+ * surcharge, negative = a discount. Not a catalog product (no stock / no manufacturing).
+ */
+export function AddAdjustmentButton({ quoteId }: { quoteId: number }) {
+  const router = useRouter();
+  const { setPending } = useShippingRecalc();
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState("");
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => { setLabel(""); setAmount(""); setError(null); };
+
+  const save = async () => {
+    setBusy(true);
+    setPending(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/quote-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quoteId, adjustment: { label: label.trim(), amount: Number(amount) } }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error ?? "Could not add line");
+      }
+      setOpen(false);
+      reset();
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+      setPending(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink-soft transition-colors hover:bg-[#faf9f5]"
+      >
+        + Add charge / discount
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-2 rounded-xl border border-line bg-surface p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          autoFocus
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Label (e.g. Rush handling)"
+          className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink outline-none focus:border-ink"
+        />
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted">$</span>
+          <input
+            type="number"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Amount"
+            className="w-28 rounded-md border border-line bg-surface px-2.5 py-1.5 text-right text-sm tabular-nums text-ink outline-none focus:border-ink"
+          />
+        </div>
+        <button onClick={save} disabled={busy} className="rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+          {busy ? "…" : "Add"}
+        </button>
+        <button onClick={() => { setOpen(false); reset(); }} disabled={busy} className="px-1 text-sm text-muted hover:underline">
+          Cancel
+        </button>
+      </div>
+      <p className="text-[11px] text-muted">Use a negative amount for a discount (e.g. −50).</p>
+      {error && <span className="text-[11px] text-red-500">{error}</span>}
+    </div>
   );
 }

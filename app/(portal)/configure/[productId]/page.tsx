@@ -6,7 +6,7 @@ import { userClient } from "@/lib/auth/user";
 import { getActivePricing, getLine, getProduct, getQuote } from "@/lib/db";
 import { parseImportPayload } from "@/lib/import";
 import { createClient } from "@/lib/supabase/server";
-import { isAccessoryConfig, type ItemConfig } from "@/lib/types";
+import { isAccessoryConfig, isAdjustmentConfig, type ItemConfig } from "@/lib/types";
 
 export default async function ConfigurePage({
   params,
@@ -30,7 +30,7 @@ export default async function ConfigurePage({
   if (quoteId && itemId) {
     const quote = await getQuote(quoteId, await userClient());
     const found = quote?.items.find((i) => i.id === itemId);
-    if (found && found.productId === productId && !isAccessoryConfig(found.config)) {
+    if (found && found.productId === productId && !isAccessoryConfig(found.config) && !isAdjustmentConfig(found.config)) {
       editItem = { id: found.id, config: found.config, qty: found.qty };
     }
   }

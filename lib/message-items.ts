@@ -1,7 +1,7 @@
 import type { CatalogSnapshot } from "@/lib/db/accessory-catalog";
 import type { MessageItemRef } from "@/lib/db";
 import type { QuoteItemRow } from "@/lib/types";
-import { isAccessoryConfig } from "@/lib/types";
+import { isAccessoryConfig, isAdjustmentConfig } from "@/lib/types";
 import { getLine, getProduct } from "@/lib/db";
 import { describeConfig } from "@/lib/describe";
 
@@ -13,6 +13,10 @@ import { describeConfig } from "@/lib/describe";
 export function quoteItemsToRefs(items: QuoteItemRow[], catalog: CatalogSnapshot): MessageItemRef[] {
   const refs: MessageItemRef[] = [];
   for (const it of items) {
+    if (isAdjustmentConfig(it.config)) {
+      refs.push({ name: it.config.label, sku: null, image: null, summary: "Adjustment", qty: it.qty });
+      continue;
+    }
     if (isAccessoryConfig(it.config)) {
       const cfg = it.config;
       const model = catalog.model(it.productId);

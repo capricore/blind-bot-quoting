@@ -10,7 +10,7 @@ import { deductMotorStock, restoreMotorStock, motorNeedsOf } from "./motors";
 import { loadCatalog } from "./accessory-catalog";
 import { getVariationItemModelMap } from "./variations";
 import { computeShipping, DEFAULT_SHIPPING, type MotorRate, type ShippingMode, type ShippingState } from "@/lib/shipping";
-import { isAccessoryConfig, PRE_SHIPMENT_STATUSES, REFUNDABLE_STATUSES } from "@/lib/types";
+import { isAccessoryConfig, isAdjustmentConfig, PRE_SHIPMENT_STATUSES, REFUNDABLE_STATUSES } from "@/lib/types";
 
 /**
  * Orders needing admin action — only `acknowledged` ones: that's the state an admin has to push
@@ -103,10 +103,12 @@ export async function submitPreOrder(
       throw new Error("The quote changed since the expedited price was set — please re-confirm the expedite price before paying.");
     }
     const expediteFee = exp.status === "quoted" ? round2(exp.fee ?? 0) : 0;
-    const amount = round2(net + ship.amount + expediteFee);
+    const amount = Math.max(0, round2(net + ship.amount + expediteFee));
     // Accessory-only orders use the collapsed 3-step flow (auto-ack + manual tracking); any product
-    // line keeps the full 6-step pipeline.
-    const accessoryOnly = quote.items.every((i) => isAccessoryConfig(i.config));
+    // line keeps the full 6-step pipeline. Ad-hoc adjustment lines (surcharge/discount) are money-only
+    // and don't affect which flow applies — judge by the real goods lines.
+    const goods = quote.items.filter((i) => !isAdjustmentConfig(i.config));
+    const accessoryOnly = goods.length > 0 && goods.every((i) => isAccessoryConfig(i.config));
     const order = await insertWithRef("orders", "PO", async (ref) => {
       const { data, error } = await sb
         .from("orders")

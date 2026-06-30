@@ -4,7 +4,9 @@ import { getActingContext } from "@/lib/auth/acting-as";
 import { admin } from "@/lib/supabase/admin";
 import {
   addAccessoryItem,
+  addAdjustmentLine,
   addQuoteItem,
+  applyPriceOverride,
   getActivePricing,
   getLine,
   getInventoryMap,
@@ -18,11 +20,12 @@ import {
   removeQuoteItem,
   resolveMotorPrice,
   resolveVariationSelections,
+  setLinePriceOverride,
   updateAccessoryItem,
   updateQuoteItem,
 } from "@/lib/db";
 import { computeQuote, PricingError } from "@/lib/pricing";
-import { isAccessoryConfig, type AccessoryConfig, type ItemConfig, type QuoteRow } from "@/lib/types";
+import { isAccessoryConfig, type AccessoryConfig, type ItemConfig, type QuoteComputation, type QuoteRow } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -75,6 +78,38 @@ async function checkSubPartStock(
   return null;
 }
 
+type ComponentPrices = NonNullable<QuoteComputation["componentPrices"]>;
+
+/**
+ * Merge an admin's (partial) per-component price change into a line's existing overrides.
+ * `change === null` clears everything; a number sets, an explicit null clears that one component.
+ * Sub-part overrides for parts no longer on the line are dropped. Returns undefined when nothing
+ * remains overridden (→ the line falls back to standard prices).
+ */
+function mergeComponentPrices(
+  existing: QuoteComputation["componentPrices"],
+  change: { motor?: number | null; items?: Record<string, number | null> } | null | undefined,
+  selectedIds: Set<string>,
+  by: string
+): ComponentPrices | undefined {
+  const clean = (n: number) => Math.max(0, Math.round(n * 100) / 100);
+  if (change === null) return undefined;
+  let motor = existing?.motor;
+  const items: Record<string, number> = { ...(existing?.items ?? {}) };
+  if (change) {
+    if ("motor" in change) motor = change.motor == null ? undefined : clean(Number(change.motor));
+    for (const [id, val] of Object.entries(change.items ?? {})) {
+      if (val == null) delete items[id];
+      else items[id] = clean(Number(val));
+    }
+  }
+  // Drop overrides for sub-parts that are no longer on the line.
+  for (const id of Object.keys(items)) if (!selectedIds.has(id)) delete items[id];
+  const hasItems = Object.keys(items).length > 0;
+  if (motor === undefined && !hasItems) return undefined;
+  return { ...(motor !== undefined ? { motor } : {}), ...(hasItems ? { items } : {}), by, at: new Date().toISOString() };
+}
+
 export async function POST(req: Request) {
   try {
     // While acting on behalf of a retailer (代下单), items land in THAT retailer's draft and are
@@ -92,10 +127,28 @@ export async function POST(req: Request) {
       variationItemIds?: string[];
       /** Per-sub-part selection with a per-motor quantity (THE-772). */
       variationItems?: Array<{ itemId: string; qty?: number }>;
+      /** Admin-only ad-hoc money line: surcharge (positive) or discount (negative). */
+      adjustment?: { label: string; amount: number; note?: string };
     };
     const qty = Math.max(1, Math.min(500, Math.round(body.qty || 1)));
     const quoteId = typeof body.quoteId === "number" && Number.isInteger(body.quoteId) ? body.quoteId : undefined;
     const sb = acting.actingAsId ? admin() : await userClient();
+
+    // Admin-only ad-hoc surcharge/discount line — not a catalog product (no stock, no manufacturing).
+    if (body.adjustment) {
+      if (!acting.isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
+      const label = body.adjustment.label?.trim();
+      const amount = Number(body.adjustment.amount);
+      if (!label) return NextResponse.json({ error: "A label is required" }, { status: 400 });
+      if (!Number.isFinite(amount) || amount === 0) {
+        return NextResponse.json({ error: "Enter a non-zero amount" }, { status: 400 });
+      }
+      const quote = await resolveTargetQuote(userId, sb, quoteId);
+      const note = body.adjustment.note?.trim() || undefined;
+      const item = await addAdjustmentLine(quote.id, label, amount, note, sb);
+      return NextResponse.json({ quoteId: quote.id, quoteRef: quote.ref, item });
+    }
+
     const catalog = await loadCatalog();
 
     // Accessory (e.g. A-OK motor): fixed price, no configuration. Only orderable categories.
@@ -168,15 +221,37 @@ export async function PATCH(req: Request) {
       qty?: number;
       /** Per-sub-part selection with a per-motor quantity (accessory lines only). */
       variationItems?: Array<{ itemId: string; qty?: number }>;
+      /** Admin-only per-quote price override: a flat unit price, or null to clear it (product lines). */
+      unitPriceOverride?: number | null;
+      /**
+       * Admin-only per-quote component price override (accessory lines): a partial map merged into the
+       * line's existing overrides — `motor`/each `items[id]` may be a number to set or null to clear;
+       * the whole value being null clears all component overrides.
+       */
+      componentPrices?: { motor?: number | null; items?: Record<string, number | null> } | null;
     };
     const itemId = Number(body.itemId);
     if (!Number.isInteger(itemId)) return NextResponse.json({ error: "Bad item id" }, { status: 400 });
     const sb = acting.actingAsId ? admin() : await userClient();
 
+    // Admin-only per-quote price override (set a flat unit price, or null to clear → standard price).
+    if (body.unitPriceOverride !== undefined) {
+      if (!acting.isAdmin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
+      let value: number | null = null;
+      if (body.unitPriceOverride !== null) {
+        value = Number(body.unitPriceOverride);
+        if (!Number.isFinite(value) || value < 0) {
+          return NextResponse.json({ error: "Enter a price of 0 or more" }, { status: 400 });
+        }
+      }
+      await setLinePriceOverride(itemId, value, acting.realUid, sb);
+      return NextResponse.json({ ok: true });
+    }
+
     // Load the line — the select doubles as the ownership guard (RLS-scoped via sb).
     const { data: existing, error: exErr } = await sb
       .from("quote_items")
-      .select("product_id, quote_id, config, qty")
+      .select("product_id, quote_id, config, qty, computation")
       .eq("id", itemId)
       .maybeSingle();
     if (exErr) throw exErr;
@@ -186,7 +261,18 @@ export async function PATCH(req: Request) {
       quote_id: number;
       config: ItemConfig | AccessoryConfig;
       qty: number;
+      computation: QuoteComputation;
     };
+    // A standing admin flat override (product lines) is re-applied after any re-price so a special
+    // per-quote price survives a qty / re-config edit (only an admin can change or clear it).
+    const keepOverride = row.computation.priceOverride
+      ? { value: row.computation.priceOverride.value, by: row.computation.priceOverride.by }
+      : undefined;
+
+    // A component-price change is admin-only (accessory lines).
+    if (body.componentPrices !== undefined && !acting.isAdmin) {
+      return NextResponse.json({ error: "Admin only" }, { status: 403 });
+    }
 
     // Accessory line: re-price the motor qty and/or per-motor sub-part qtys, enforcing stock.
     const accessory = isAccessoryConfig(row.config) ? (await loadCatalog()).model(row.product_id) : null;
@@ -210,7 +296,17 @@ export async function PATCH(req: Request) {
       if (stockErr) return NextResponse.json({ error: stockErr }, { status: 409 });
       const ownerId = await getQuoteOwnerId(row.quote_id);
       const unitPrice = await resolveMotorPrice(accessory.id, ownerId ?? null);
-      await updateAccessoryItem(itemId, accessory, qty, unitPrice, variations, sb);
+      // Resolve the effective per-component overrides: start from the line's existing overrides, then
+      // apply the (partial) change in this request (number = set, null = clear; whole value null =
+      // clear all). Finally drop any sub-part override that's no longer on the line.
+      const selectedIds = new Set(variations.map((v) => v.itemId));
+      const componentPrices = mergeComponentPrices(
+        row.computation.componentPrices,
+        body.componentPrices,
+        selectedIds,
+        acting.realUid
+      );
+      await updateAccessoryItem(itemId, accessory, qty, unitPrice, variations, sb, componentPrices);
       return NextResponse.json({ ok: true });
     }
 
@@ -221,7 +317,8 @@ export async function PATCH(req: Request) {
       if (!product) return NextResponse.json({ error: "Unknown product" }, { status: 404 });
       const line = getLine(product.lineId)!;
       const pricing = await getActivePricing(product.lineId);
-      const computation = computeQuote(line, product, body.config, pricing.config, pricing.version);
+      const std = computeQuote(line, product, body.config, pricing.config, pricing.version);
+      const computation = keepOverride ? applyPriceOverride(std, keepOverride.value, keepOverride.by) : std;
       await updateQuoteItem(itemId, { config: body.config, computation, qty }, sb);
     } else {
       if (qty === undefined) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });

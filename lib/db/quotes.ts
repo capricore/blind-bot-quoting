@@ -4,6 +4,7 @@ import { admin } from "@/lib/supabase/admin";
 import { loadCatalog } from "./accessory-catalog";
 import type {
   AccessoryConfig,
+  AdjustmentConfig,
   ItemConfig,
   Product,
   QuoteComputation,
@@ -162,7 +163,7 @@ export async function removeQuoteItem(itemId: number, sb: SupabaseClient = admin
 /** Update an existing quote line (re-configured product, or just a qty change). */
 export async function updateQuoteItem(
   itemId: number,
-  patch: { config?: ItemConfig | AccessoryConfig; computation?: QuoteComputation; qty?: number },
+  patch: { config?: ItemConfig | AccessoryConfig | AdjustmentConfig; computation?: QuoteComputation; qty?: number },
   sb: SupabaseClient = admin()
 ): Promise<void> {
   const cols: Record<string, unknown> = {};
@@ -239,7 +240,8 @@ export async function deleteQuote(quoteId: number, sb: SupabaseClient = admin())
 async function buildAccessoryLine(
   model: AccessoryModel,
   unitPrice: number | undefined,
-  variations: VariationSnapshot[]
+  variations: VariationSnapshot[],
+  componentPrices?: { motor?: number; items?: Record<string, number>; by: string; at: string }
 ): Promise<{ config: AccessoryConfig; computation: QuoteComputation }> {
   const cat = await loadCatalog();
   const category = cat.category(model.categoryId);
@@ -247,6 +249,13 @@ async function buildAccessoryLine(
   // default brand only when the category has no brandId / the brand row is missing.
   const brandName =
     cat.brands.find((b) => b.id === category?.brandId)?.name ?? cat.brand.name;
+  // Apply any admin per-component override: a custom motor base and/or per-sub-part unit price. The
+  // effective sub-part price is snapshotted onto each variation so every downstream display (quote,
+  // invoice, Excel, PO, chat) shows the overridden number with no extra plumbing.
+  const overItems = componentPrices?.items ?? {};
+  const outVariations: VariationSnapshot[] = variations.map((v) =>
+    v.itemId in overItems ? { ...v, price: round2(overItems[v.itemId]) } : v
+  );
   const config: AccessoryConfig = {
     kind: "accessory",
     sku: model.sku,
@@ -254,13 +263,14 @@ async function buildAccessoryLine(
     brand: brandName,
     category: category?.name ?? model.categoryId,
     image: cat.image(model),
-    ...(variations.length ? { variations } : {}),
+    ...(outVariations.length ? { variations: outVariations } : {}),
   };
-  // Snapshot the retailer's effective price (override → default → static), defaulting to static.
-  const base = unitPrice ?? model.price ?? 0;
+  // Snapshot the retailer's effective price (override → default → static), defaulting to static; an
+  // admin motor-base override wins for this quote.
+  const base = componentPrices?.motor ?? unitPrice ?? model.price ?? 0;
   const lines = [{ label: "Unit price", detail: model.sku, amount: base }];
   let price = base;
-  for (const v of variations) {
+  for (const v of outVariations) {
     const vqty = v.qty ?? 1;
     if (v.price) {
       lines.push({
@@ -278,12 +288,13 @@ async function buildAccessoryLine(
     facts: [
       { label: "Brand", value: brandName },
       { label: "Model #", value: model.sku },
-      ...variations.map((v) => ({
+      ...outVariations.map((v) => ({
         label: v.variationName,
         value: (v.qty ?? 1) > 1 ? `${v.itemLabel} ×${v.qty}` : v.itemLabel,
       })),
     ],
     pricingVersion: ACCESSORY_PRICING_VERSION,
+    ...(componentPrices ? { componentPrices } : {}),
   };
   return { config, computation };
 }
@@ -308,9 +319,24 @@ export async function addAccessoryItem(
 }
 
 /**
+ * Stamp an admin per-quote price override onto a freshly computed (standard) computation: `unitPrice`
+ * becomes the flat `value`, and the standard price it replaces is remembered for "was $X" display.
+ * `comp` must be the standard computation (no override) — the standard is read straight off it.
+ */
+export function applyPriceOverride(comp: QuoteComputation, value: number, by: string): QuoteComputation {
+  return {
+    ...comp,
+    unitPrice: round2(value),
+    priceOverride: { value: round2(value), standard: comp.unitPrice, by, at: new Date().toISOString() },
+  };
+}
+
+/**
  * Re-price an existing accessory line after the customer edits the motor qty and/or the per-motor
  * sub-part quantities on the quote page. Re-snapshots config + computation so the stored price
- * always matches the current selection (the client preview is never trusted).
+ * always matches the current selection (the client preview is never trusted). Any admin per-component
+ * price override (`componentPrices`) is re-applied so a special per-quote price survives a qty or
+ * sub-part change — only an admin sets it, only an admin clears it.
  */
 export async function updateAccessoryItem(
   itemId: number,
@@ -318,10 +344,75 @@ export async function updateAccessoryItem(
   qty: number,
   unitPrice: number,
   variations: VariationSnapshot[],
-  sb: SupabaseClient = admin()
+  sb: SupabaseClient = admin(),
+  componentPrices?: { motor?: number; items?: Record<string, number>; by: string; at: string }
 ): Promise<void> {
-  const { config, computation } = await buildAccessoryLine(model, unitPrice, variations);
+  const { config, computation } = await buildAccessoryLine(model, unitPrice, variations, componentPrices);
   await updateQuoteItem(itemId, { config, computation, qty }, sb);
+}
+
+/**
+ * Set (or clear, with `value: null`) the admin per-quote price override on a line. Setting does NOT
+ * re-snapshot the product — it treats the line's current standard price as the baseline, so it works
+ * uniformly for product and accessory lines. Clearing restores the remembered standard price.
+ * Admin-only; the API route enforces that. Returns the line's quote id (for revalidation).
+ */
+export async function setLinePriceOverride(
+  itemId: number,
+  value: number | null,
+  by: string,
+  sb: SupabaseClient = admin()
+): Promise<number> {
+  const { data, error } = await sb
+    .from("quote_items")
+    .select("quote_id, computation")
+    .eq("id", itemId)
+    .single();
+  if (error) throw error;
+  const row = data as { quote_id: number; computation: QuoteComputation };
+  const comp = row.computation;
+  const standard = comp.priceOverride?.standard ?? comp.unitPrice;
+  let next: QuoteComputation;
+  if (value === null) {
+    // Restore the standard price and drop the override metadata.
+    const { priceOverride: _drop, ...rest } = comp;
+    void _drop;
+    next = { ...rest, unitPrice: round2(standard) };
+  } else {
+    next = { ...comp, unitPrice: round2(value), priceOverride: { value: round2(value), standard: round2(standard), by, at: new Date().toISOString() } };
+  }
+  await updateQuoteItem(itemId, { computation: next }, sb);
+  return row.quote_id;
+}
+
+/**
+ * Add an admin ad-hoc money line (surcharge if positive, discount if negative) to a quote. It is not
+ * a catalog product (no stock, no manufacturing); the amount sits in `computation.unitPrice` (qty 1)
+ * so it folds through the same totals as every other line. Admin-only; the API route enforces that.
+ */
+export async function addAdjustmentLine(
+  quoteId: number,
+  label: string,
+  amount: number,
+  note: string | undefined,
+  sb: SupabaseClient = admin()
+): Promise<QuoteItemRow> {
+  const config: AdjustmentConfig = { kind: "adjustment", label, ...(note ? { note } : {}) };
+  const computation: QuoteComputation = {
+    unitPrice: round2(amount),
+    currency: "USD",
+    lines: [{ label, amount: round2(amount) }],
+    facts: [],
+    pricingVersion: "adjustment",
+  };
+  const { data, error } = await sb
+    .from("quote_items")
+    .insert({ quote_id: quoteId, product_id: "adjustment", line_id: "adjustment", qty: 1, config, computation })
+    .select(ITEM_COLS)
+    .single();
+  if (error) throw error;
+  await sb.from("quotes").update({ updated_at: new Date().toISOString() }).eq("id", quoteId);
+  return data as unknown as QuoteItemRow;
 }
 
 export async function getQuotes(
@@ -400,7 +491,7 @@ export async function getQuotes(
       const ship = computeShipping(lineItems, catalog, itemRates, e?.expedite === true, netTotal, waivers);
       const stale = e?.status === "quoted" && (e.sig ?? null) !== expediteSignature(its);
       const expediteFee = e?.status === "quoted" && !stale ? e.fee ?? 0 : 0;
-      total = round2(netTotal + ship.amount + expediteFee);
+      total = Math.max(0, round2(netTotal + ship.amount + expediteFee));
     }
     return { ...q, itemCount: its.length, total };
   });

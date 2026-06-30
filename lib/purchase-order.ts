@@ -5,7 +5,7 @@
 // white-label brand; the vendor is just the brand string (A-OK / B-OK …).
 import { getLine, getProduct } from "./db";
 import { describeConfig } from "./describe";
-import { isAccessoryConfig, type QuoteItemRow } from "./types";
+import { isAccessoryConfig, isAdjustmentConfig, type QuoteItemRow } from "./types";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -31,6 +31,11 @@ export function buildPurchaseOrderRows(items: QuoteItemRow[]): PurchaseOrderRow[
   const rows: PurchaseOrderRow[] = [];
   for (const item of items) {
     const cfg = item.config;
+    if (isAdjustmentConfig(cfg)) {
+      const rate = item.computation.unitPrice;
+      rows.push({ qty: item.qty, rate, amount: round2(rate * item.qty), sku: null, name: cfg.label, detail: cfg.note ?? "" });
+      continue;
+    }
     if (isAccessoryConfig(cfg)) {
       const variations = cfg.variations ?? [];
       const subTotalPerMotor = variations.reduce((s, v) => s + (v.price ?? 0) * (v.qty ?? 1), 0);

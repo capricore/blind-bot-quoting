@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { MapPin } from "lucide-react";
 import { notFound } from "next/navigation";
-import { DeleteDraftButton, PendingPaymentCard, RemoveItemButton, SubmitPreOrderButton } from "@/components/QuoteActions";
+import { AddAdjustmentButton, DeleteDraftButton, LinePriceEditor, PendingPaymentCard, RemoveItemButton, SubmitPreOrderButton } from "@/components/QuoteActions";
 import { QuoteDetailsDrawer } from "@/components/QuoteDetailsDrawer";
 import { ShippingSummaryRow } from "@/components/ShippingSummaryRow";
 import { ShippingRecalcProvider } from "@/components/ShippingRecalcContext";
@@ -41,7 +41,7 @@ import { computeShipping, type MotorRate } from "@/lib/shipping";
 import { canInvoiceQuote } from "@/lib/invoice";
 import { describeConfig } from "@/lib/describe";
 import { fmtDate, usd } from "@/lib/format";
-import { isAccessoryConfig } from "@/lib/types";
+import { isAccessoryConfig, isAdjustmentConfig } from "@/lib/types";
 
 function DetailBlock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -147,7 +147,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   const expediteStale =
     expediteState.status === "quoted" && expediteState.sig !== expediteSignature(quote.items);
   const expediteFee = expediteState.status === "quoted" && !expediteStale ? expediteState.fee ?? 0 : 0;
-  const grandTotal = Math.round((netTotal + ship.amount + expediteFee) * 100) / 100;
+  const grandTotal = Math.max(0, Math.round((netTotal + ship.amount + expediteFee) * 100) / 100);
   // Per-item shipping breakdown (each US-made / ground motor + any US-made variation sub-part).
   const unitOf = (r: MotorRate) => (expedite ? r.shipExpedite ?? 0 : r.shipGround ?? 0);
   const shipLineDetail = ship.hasGround
@@ -187,7 +187,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
       };
 
   // Accessory-only quotes get the checkout-form pay flow (details + address book); products don't.
-  const allAccessory = quote.items.length > 0 && quote.items.every((it) => isAccessoryConfig(it.config));
+  // Ad-hoc adjustment lines are money-only — ignore them when judging "all accessory".
+  const goodsItems = quote.items.filter((it) => !isAdjustmentConfig(it.config));
+  const allAccessory = goodsItems.length > 0 && goodsItems.every((it) => isAccessoryConfig(it.config));
   const details = {
     quoteType: quote.quoteType,
     quoteName: quote.quoteName,
@@ -312,7 +314,8 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
             </div>
 
             {editable && (
-              <div className="flex flex-wrap justify-end gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {viewerIsAdmin && <AddAdjustmentButton quoteId={quote.id} />}
                 <LinkButton href={`/catalog?quote=${quote.id}`}>+ Add product</LinkButton>
                 <LinkButton href={`/catalog/accessories?quote=${quote.id}`} variant="secondary">
                   + Add accessory
@@ -324,11 +327,41 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                 Scrolls internally so the details + add buttons above stay fixed. */}
             <div className="min-h-0 flex-1 divide-y divide-line overflow-y-auto rounded-2xl border border-line bg-surface">
             {quote.items.map((item) => {
+              // Ad-hoc adjustment line (admin surcharge / discount): money-only, no product.
+              if (isAdjustmentConfig(item.config)) {
+                const cfg = item.config;
+                const amount = item.computation.unitPrice;
+                const isDiscount = amount < 0;
+                return (
+                  <div key={item.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="text-[15px] font-semibold text-ink">{cfg.label}</span>
+                      <span className="rounded-md bg-[#f1efe9] px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted">
+                        {isDiscount ? "Discount" : "Charge"}
+                      </span>
+                      {cfg.note && <span className="truncate text-xs text-muted">· {cfg.note}</span>}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-4">
+                      <span className={`font-semibold tabular-nums ${isDiscount ? "text-emerald-600" : "text-ink"}`}>
+                        {isDiscount ? `−${usd(Math.abs(amount))}` : usd(amount)}
+                      </span>
+                      {editable && <RemoveItemButton itemId={item.id} />}
+                    </div>
+                  </div>
+                );
+              }
               // Accessory line (A-OK motor): fixed price, no color/dimensions.
               if (isAccessoryConfig(item.config)) {
                 const cfg = item.config;
                 const acc = catalog.model(item.productId);
                 const img = cfg.image ?? (acc ? catalog.image(acc) : null);
+                // Motor's own base unit price = line unit price minus its sub-parts (per motor).
+                const motorBase =
+                  Math.round(
+                    (item.computation.unitPrice -
+                      (cfg.variations ?? []).reduce((s, v) => s + (v.price ?? 0) * (v.qty ?? 1), 0)) * 100
+                  ) / 100;
+                const motorOverridden = item.computation.componentPrices?.motor !== undefined;
                 return (
                   <div key={item.id} className="px-5 py-4">
                     <div className="flex gap-4">
@@ -361,20 +394,34 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                               : <AccessoryVariations cfg={cfg} motorQty={item.qty} />}
                           </div>
                           <div className="text-right">
-                            <div className="font-semibold tabular-nums text-ink">
-                              {usd(item.computation.unitPrice * item.qty)}
-                            </div>
-                            <div className="text-xs text-muted">
-                              {item.qty} × {usd(item.computation.unitPrice)}
-                            </div>
+                            {/* Main product (motor) own unit price — sub-parts are priced in their rows. */}
+                            <div className="font-semibold tabular-nums text-ink">{usd(motorBase)}</div>
+                            <div className="text-xs text-muted">unit price</div>
+                            {viewerIsAdmin && editable && (
+                              <LinePriceEditor
+                                itemId={item.id}
+                                target="motor"
+                                unitPrice={motorBase}
+                                overridden={motorOverridden}
+                              />
+                            )}
+                            {/* Locked view has no editor row below, so show the line total here. */}
+                            {!editable && (
+                              <div className="mt-1 text-xs text-muted">
+                                Total {usd(item.computation.unitPrice * item.qty)}
+                              </div>
+                            )}
                           </div>
                         </div>
                         {editable && (
                           <AccessoryLineEditor
                             itemId={item.id}
                             qty={item.qty}
+                            unitPrice={item.computation.unitPrice}
                             motorStock={item.productId in inventory ? inventory[item.productId] : null}
                             moq={acc?.moq ?? 0}
+                            isAdmin={viewerIsAdmin}
+                            priced={!!item.computation.componentPrices}
                             variations={(cfg.variations ?? []).map(
                               (v): EditorVariation => ({
                                 itemId: v.itemId,
@@ -444,6 +491,13 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                           <div className="text-xs text-muted">
                             {item.qty} × {usd(item.computation.unitPrice)}
                           </div>
+                          {viewerIsAdmin && editable && (
+                            <LinePriceEditor
+                              itemId={item.id}
+                              unitPrice={item.computation.unitPrice}
+                              standard={item.computation.priceOverride?.standard ?? null}
+                            />
+                          )}
                         </div>
                       </div>
                       <div className="mt-2 text-[12.5px] text-ink-soft">{desc.dims}</div>

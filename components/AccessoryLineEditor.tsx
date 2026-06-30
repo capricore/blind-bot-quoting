@@ -21,6 +21,68 @@ export type EditorVariation = {
   stock: number | null;
 };
 
+/** Format a price for the editable field — trims trailing zeros so "$1.50"→"1.5", "$0"→"0". */
+const fmtPrice = (n: number) => String(Math.round(n * 100) / 100);
+
+/**
+ * Admin per-unit price field (per-quote override). Typeable, debounced like the Stepper so editing
+ * "0.50" fires one commit, not one per keystroke; blur/Enter flush. Commits only when the value
+ * actually changed. Negative/invalid is clamped to 0.
+ */
+function PriceField({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  disabled?: boolean;
+  onCommit: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState(fmtPrice(value));
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) setDraft(fmtPrice(value));
+  }, [value]);
+  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+
+  const flush = (raw: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    editing.current = false;
+    const n = Number(raw);
+    const val = !Number.isFinite(n) || n < 0 ? 0 : Math.round(n * 100) / 100;
+    setDraft(fmtPrice(val));
+    if (val !== value) onCommit(val);
+  };
+
+  return (
+    <div className={cx("inline-flex items-center rounded-lg border border-line px-1.5", disabled && "opacity-60")}>
+      <span className="text-[12px] text-muted">$</span>
+      <input
+        type="number"
+        min={0}
+        step="0.01"
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => {
+          editing.current = true;
+          setDraft(e.target.value);
+          if (timer.current) clearTimeout(timer.current);
+          const raw = e.target.value;
+          timer.current = setTimeout(() => flush(raw), 600);
+        }}
+        onBlur={(e) => flush(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        aria-label="Unit price"
+        className="w-16 border-0 bg-transparent py-1 text-right text-[13px] font-semibold tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      />
+    </div>
+  );
+}
+
 /** Stock label + tone for one row (motor or sub-part). null = untracked → no badge. */
 function StockBadge({ stock }: { stock: number | null }) {
   if (stock === null) return null;
@@ -156,8 +218,11 @@ function Stepper({
 export function AccessoryLineEditor({
   itemId,
   qty: initialQty,
+  unitPrice,
   motorStock,
   moq,
+  isAdmin = false,
+  priced = false,
   variations: initialVariations,
   availableParts,
   partStock,
@@ -165,8 +230,14 @@ export function AccessoryLineEditor({
 }: {
   itemId: number;
   qty: number;
+  /** Line's combined unit price (motor base + sub-parts) — for the Total in the quantity row. */
+  unitPrice: number;
   motorStock: number | null;
   moq: number;
+  /** Admin sees per-unit price fields (per-quote override) on each sub-part. */
+  isAdmin?: boolean;
+  /** Whether this line currently has any admin component-price override (drives the Reset link). */
+  priced?: boolean;
   variations: EditorVariation[];
   /** Every add-on part the motor offers (for the "+ Add accessory" picker). */
   availableParts: VariationType[];
@@ -273,6 +344,28 @@ export function AccessoryLineEditor({
     }
   };
 
+  // Admin per-quote price override: merge a partial component-price change (motor base or one
+  // sub-part). null clears all. Server preserves the rest + re-applies on later qty/sub-part edits.
+  const commitPrices = async (change: { motor?: number | null; items?: Record<string, number | null> } | null) => {
+    setSubmitting(true);
+    try {
+      const r = await fetch("/api/quote-items", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, componentPrices: change }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error ?? "Could not update price");
+      }
+      startTransition(() => router.refresh());
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Remove the whole line (motor + its sub-parts). Mirrors RemoveItemButton, but reachable from the
   // qty stepper so dropping the motor qty to 0 deletes the line.
   const removeLine = async () => {
@@ -345,10 +438,16 @@ export function AccessoryLineEditor({
                 </div>
                 {/* min 0 so decrementing/typing 0 removes this sub-part from the line. */}
                 <Stepper value={cur} min={0} max={vMax} disabled={busy} onChange={(n) => setPartQty(id, n)} />
-                {/* Extended price for this sub-part (per motor) */}
-                <div className="w-16 shrink-0 text-right text-[13px] font-semibold tabular-nums text-ink">
-                  {meta.price > 0 ? usd(meta.price * cur) : "—"}
-                </div>
+                {/* Admin: editable per-unit price (this quote only). Else: extended price (per motor). */}
+                {isAdmin ? (
+                  <div className="shrink-0">
+                    <PriceField value={meta.price} disabled={busy} onCommit={(v) => commitPrices({ items: { [id]: v } })} />
+                  </div>
+                ) : (
+                  <div className="w-16 shrink-0 text-right text-[13px] font-semibold tabular-nums text-ink">
+                    {meta.price > 0 ? usd(meta.price * cur) : "—"}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -418,13 +517,28 @@ export function AccessoryLineEditor({
         </div>
       )}
 
-      <div className={cx("flex items-center gap-4", (selectedIds.length > 0 || addable.length > 0) && "mt-3 border-t border-line pt-3")}>
-        <div className="min-w-0 flex-1">
+      <div className={cx("flex items-center gap-5", (selectedIds.length > 0 || addable.length > 0) && "mt-3 border-t border-line pt-3")}>
+        <div className="shrink-0">
           <div className="text-[12.5px] font-medium text-ink">Quantity</div>
           {moq > 0 && <div className="mt-0.5 text-[11px] text-muted">Min order {moq}</div>}
+          {isAdmin && priced && (
+            <button
+              type="button"
+              onClick={() => commitPrices(null)}
+              disabled={busy}
+              className="mt-0.5 text-[11px] font-medium text-muted hover:text-red-500 disabled:opacity-50"
+            >
+              Reset prices
+            </button>
+          )}
         </div>
         {/* min 0 so decrementing/typing 0 removes the line; setMotorQty re-clamps nonzero values to moq. */}
         <Stepper value={qty} min={0} max={maxQty} disabled={busy} onChange={setMotorQty} />
+        {/* Line total pushed to the right (flex-1 fills the gap); inline "Total $60.00". */}
+        <div className="flex flex-1 items-baseline justify-end gap-2">
+          <span className="text-[15px] font-medium text-ink-soft">Total</span>
+          <span className="text-[17px] font-bold tabular-nums text-ink">{usd(unitPrice * qty)}</span>
+        </div>
         <div className="w-16 shrink-0 text-right">
           <RemoveItemButton itemId={itemId} />
         </div>

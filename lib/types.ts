@@ -103,6 +103,19 @@ export interface AccessoryConfig {
   crownDriver?: CrownDriverConfig;
 }
 
+/**
+ * An admin-added ad-hoc money line on a quote — a surcharge (positive) or a discount (negative).
+ * Not a catalog product: no stock, no manufacturing, never on the supplier sheet. The amount lives
+ * in `computation.unitPrice` (qty is always 1) so it folds through the same `Σ unitPrice × qty`
+ * totals as every other line. lineId = "adjustment".
+ */
+export interface AdjustmentConfig {
+  kind: "adjustment";
+  /** Human label shown on the quote/invoice, e.g. "Rush handling" or "Loyalty discount". */
+  label: string;
+  note?: string;
+}
+
 /** One chosen variation item, snapshotted onto a quote line. */
 export interface VariationSnapshot {
   variationId: string;
@@ -167,6 +180,19 @@ export interface QuoteComputation {
   /** derived manufacturing facts (fabric meters, panel count…) surfaced in the UI and the supplier Excel */
   facts: { label: string; value: string }[];
   pricingVersion: string;
+  /**
+   * Admin per-quote price override (THE-772) for FULL PRODUCT lines: a flat special unit price for
+   * this quote only. `unitPrice` IS `value`; `standard` is the computed price it replaced (refreshed
+   * on every re-price, for "was $X" display). Survives qty re-prices — only an admin sets/clears it.
+   */
+  priceOverride?: { value: number; standard: number; by: string; at: string };
+  /**
+   * Admin per-quote price override for ACCESSORY lines, at component granularity: a custom motor base
+   * price and/or per-sub-part unit price (keyed by variation item id). Whatever isn't overridden falls
+   * back to the catalog/standard price. `unitPrice` is recomputed from these. Survives qty/sub-part
+   * edits; cleared by an admin Reset. Absent = standard prices.
+   */
+  componentPrices?: { motor?: number; items?: Record<string, number>; by: string; at: string };
 }
 
 export type QuoteStatus = "draft" | "converted";
@@ -175,16 +201,21 @@ export interface QuoteItemRow {
   id: number;
   quoteId: number;
   productId: string;
-  lineId: ProductLineId | "accessory";
+  lineId: ProductLineId | "accessory" | "adjustment";
   qty: number;
-  config: ItemConfig | AccessoryConfig;
+  config: ItemConfig | AccessoryConfig | AdjustmentConfig;
   computation: QuoteComputation;
   createdAt: string;
 }
 
 /** True for an accessory (e.g. A-OK motor) quote line. */
-export function isAccessoryConfig(c: ItemConfig | AccessoryConfig): c is AccessoryConfig {
+export function isAccessoryConfig(c: ItemConfig | AccessoryConfig | AdjustmentConfig): c is AccessoryConfig {
   return (c as AccessoryConfig).kind === "accessory";
+}
+
+/** True for an admin-added ad-hoc surcharge/discount line. */
+export function isAdjustmentConfig(c: ItemConfig | AccessoryConfig | AdjustmentConfig): c is AdjustmentConfig {
+  return (c as AdjustmentConfig).kind === "adjustment";
 }
 
 export interface QuoteRow {
