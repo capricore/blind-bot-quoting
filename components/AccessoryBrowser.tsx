@@ -228,15 +228,11 @@ function VariationPanel({
   }, [avail]);
 
   // Multi-select per type: each type holds a list of chosen item ids ([] = none). Initial state
-  // seeds one pick per type — the admin default if set, else the first in-stock, non-conflicting
-  // item. Not mandatory: the user can Clear any of them, and pick several within a type.
+  // seeds ONLY the admin-configured defaults (customer kit → store-wide star). No fallback: a
+  // type with no default starts unselected. The user can add/clear any of them.
   const [pick, setPick] = useState<Record<string, string[]>>(() => {
     const p: Record<string, string[]> = {};
     const chosen = new Set<string>(); // already-seeded ids, for the exclusion-group check
-    const inStock = (id: string) => {
-      const s = variationStock[id];
-      return s === undefined || s === null || s > 0;
-    };
     const compatible = (id: string) => {
       const c = blocked.get(id);
       if (!c) return true;
@@ -244,11 +240,13 @@ function VariationPanel({
       return true;
     };
     for (const t of avail) {
-      const def = t.items.find((i) => model.defaultItemIds.includes(i.id));
-      const fallback = t.items.find((i) => inStock(i.id) && compatible(i.id));
-      const id = def?.id ?? fallback?.id ?? "";
-      p[t.id] = id ? [id] : [];
-      if (id) chosen.add(id);
+      const ids: string[] = [];
+      for (const i of t.items)
+        if (model.defaultItemIds.includes(i.id) && compatible(i.id)) {
+          ids.push(i.id);
+          chosen.add(i.id);
+        }
+      p[t.id] = ids;
     }
     return p;
   });

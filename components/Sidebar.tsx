@@ -29,7 +29,7 @@ type NavItem = {
   icon: LucideIcon;
   adminOnly?: boolean;
   retailerOnly?: boolean;
-  children?: { href: string; label: string; adminOnly?: boolean }[];
+  children?: { href: string; label: string; adminOnly?: boolean; disabled?: boolean }[];
 };
 
 const NAV: { section: string; adminOnly?: boolean; items: NavItem[] }[] = [
@@ -41,7 +41,8 @@ const NAV: { section: string; adminOnly?: boolean; items: NavItem[] }[] = [
         label: "Catalog",
         icon: BookOpen,
         children: [
-          { href: "/catalog", label: "Products" },
+          // Products visible but not yet clickable — catalog still being finalized.
+          { href: "/catalog", label: "Products", disabled: true },
           { href: "/catalog/accessories", label: "Accessory" },
         ],
       },
@@ -167,6 +168,21 @@ export default function Sidebar({
                       </div>
                       <div className="mb-0.5 ml-[26px] space-y-0.5 border-l border-white/10 pl-3">
                         {children.map((c) => {
+                          if (c.disabled) {
+                            return (
+                              <div
+                                key={c.href}
+                                aria-disabled
+                                title="Coming soon"
+                                className="flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] font-medium text-white/30"
+                              >
+                                {c.label}
+                                <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/45">
+                                  Coming soon
+                                </span>
+                              </div>
+                            );
+                          }
                           const active = isActive(c.href);
                           return (
                             <Link
